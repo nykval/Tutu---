@@ -11,6 +11,44 @@ const THEME_TYPES = [
   'расположение', 'характер', 'уровень', 'повод', 'без темы',
 ];
 const BENEFIT_TYPES = ['action', 'promocode'];
+const COUNTRYSIDE_THEME_ID = 8;
+const COUNTRYSIDE_SEARCH_GEOGRAPHIES = Object.freeze({
+  'москва': 'Московская область',
+  'санкт-петербург': 'Ленинградская область',
+  'казань': 'Республика Татарстан',
+  'калининград': 'Калининградская область',
+  'нижний новгород': 'Нижегородская область',
+  'петрозаводск': 'Республика Карелия',
+  'владивосток': 'Приморский край',
+  'екатеринбург': 'Свердловская область',
+  'краснодар': 'Краснодарский край',
+  'ростов-на-дону': 'Ростовская область',
+  'новосибирск': 'Новосибирская область',
+  'самара': 'Самарская область',
+  'ярославль': 'Ярославская область',
+  'великий новгород': 'Новгородская область',
+  'владимир': 'Владимирская область',
+  'тула': 'Тульская область',
+  'мурманск': 'Мурманская область',
+  'иркутск': 'Иркутская область',
+  'уфа': 'Республика Башкортостан',
+  'красноярск': 'Красноярский край',
+  'тюмень': 'Тюменская область',
+  'псков': 'Псковская область',
+  'тверь': 'Тверская область',
+  'вологда': 'Вологодская область',
+  'кострома': 'Костромская область',
+  'рязань': 'Рязанская область',
+  'пермь': 'Пермский край',
+  'волгоград': 'Волгоградская область',
+  'воронеж': 'Воронежская область',
+  'саратов': 'Саратовская область',
+  'астрахань': 'Астраханская область',
+  'владикавказ': 'Республика Северная Осетия — Алания',
+});
+const MAX_HOTEL_CANDIDATES = 120;
+const HOTEL_RATING_PRIOR = 8;
+const HOTEL_RATING_CONFIDENCE = 60;
 const THEME_HOTEL_AMENITIES = {
   9: 'spa',
   15: 'kid_friendly',
@@ -371,8 +409,71 @@ function hotelSearchFilters(themeIds) {
   if (ids.has(58)) argumentsValue.breakfast_included = true;
   if (ids.has(59)) argumentsValue.meals = ['allinclusive'];
   if (ids.has(85)) argumentsValue.hotel_types = ['apartments'];
+  else if (ids.has(COUNTRYSIDE_THEME_ID)) argumentsValue.hotel_types = ['hotel', 'guesthouse'];
   if (ids.has(94)) argumentsValue.min_rating = 8;
   return argumentsValue;
+}
+
+function geographyKey(value) {
+  return String(value || '').trim().toLocaleLowerCase('ru-RU').replace(/ё/g, 'е');
+}
+
+function hotelSearchGeography(geographyName, themeIds) {
+  if (!themeIds.includes(COUNTRYSIDE_THEME_ID)) return geographyName;
+  return COUNTRYSIDE_SEARCH_GEOGRAPHIES[geographyKey(geographyName)] || geographyName;
+}
+
+function numericHotelValue(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'string') return null;
+  const match = value.replace(/\s/g, '').replace(',', '.').match(/-?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const number = Number(match[0]);
+  return Number.isFinite(number) ? number : null;
+}
+
+function hotelRating(hotel) {
+  const summary = hotel?.review_summary;
+  const values = [hotel?.rating, summary?.rating, summary?.score, summary?.value];
+  for (const value of values) {
+    const number = numericHotelValue(value);
+    if (number != null && number >= 0 && number <= 10) return number;
+  }
+  return null;
+}
+
+function hotelReviewCount(hotel) {
+  const summary = hotel?.review_summary;
+  const values = [
+    hotel?.reviewCount,
+    summary?.count,
+    summary?.review_count,
+    summary?.reviews_count,
+    summary?.total,
+    hotel?.review_count,
+    hotel?.reviews_count,
+  ];
+  for (const value of values) {
+    const number = numericHotelValue(value);
+    if (number != null && number >= 0) return Math.floor(number);
+  }
+  return 0;
+}
+
+function hotelQualityScore(hotel) {
+  const rating = hotelRating(hotel);
+  if (rating == null) return -1;
+  const reviews = hotelReviewCount(hotel);
+  return (
+    rating * reviews + HOTEL_RATING_PRIOR * HOTEL_RATING_CONFIDENCE
+  ) / (reviews + HOTEL_RATING_CONFIDENCE);
+}
+
+function compareHotelsByQuality(left, right) {
+  return hotelQualityScore(right) - hotelQualityScore(left)
+    || (hotelRating(right) ?? -1) - (hotelRating(left) ?? -1)
+    || hotelReviewCount(right) - hotelReviewCount(left)
+    || String(left?.name || '').localeCompare(String(right?.name || ''), 'ru');
 }
 
 function validateDate(value, label) {
@@ -461,24 +562,26 @@ async function searchHotels(payload) {
   const themeIds = Array.isArray(payload.themeIds)
     ? payload.themeIds.map(value => positiveInteger(value, 1, 10000000, 'Тема'))
     : [];
+  const searchGeography = hotelSearchGeography(geographyName, themeIds);
   const baseArguments = {
-    city_name: geographyName,
+    city_name: searchGeography,
     check_in: payload.checkIn,
     check_out: payload.checkOut,
     adults,
     view: 'compact',
     ...hotelSearchFilters(themeIds),
   };
-  const hotels = [];
+  const candidates = [];
   const seen = new Set();
   let resolvedGeo = null;
   let page = 1;
   let hasMore = true;
-  while (hotels.length < requested && page <= 10 && hasMore) {
+  const candidateLimit = Math.min(MAX_HOTEL_CANDIDATES, Math.max(30, requested * 6));
+  while (candidates.length < candidateLimit && page <= 10 && hasMore) {
     const data = await callMcpTool('search_hotels', {
       ...baseArguments,
       page,
-      page_size: Math.min(30, requested - hotels.length),
+      page_size: Math.min(30, candidateLimit - candidates.length),
     });
     const meta = data.meta && typeof data.meta === 'object' ? data.meta : {};
     resolvedGeo ||= meta.resolved_geo || null;
@@ -491,23 +594,32 @@ async function searchHotels(payload) {
       const key = attributed.replace(/\/$/, '');
       if (seen.has(key)) continue;
       seen.add(key);
-      hotels.push({
+      candidates.push({
         name: hotel.name || 'Отель',
         stars: hotel.stars ?? null,
-        rating: hotel.rating ?? null,
+        rating: hotelRating(hotel),
+        reviewCount: hotelReviewCount(hotel),
         address: hotel.address ?? null,
         price: offer.price ?? null,
         url: attributed,
       });
-      if (hotels.length >= requested) break;
+      if (candidates.length >= candidateLimit) break;
     }
     hasMore = Boolean(meta.has_more) && rows.length > 0;
     page += 1;
   }
-  if (!hotels.length) {
+  if (!candidates.length) {
     throw new ApiError('Tutu не нашёл подходящих отелей. Попробуйте изменить даты или темы.', 404);
   }
-  return {hotels, requested, found: hotels.length, resolvedGeo};
+  const hotels = candidates.sort(compareHotelsByQuality).slice(0, requested);
+  return {
+    hotels,
+    requested,
+    found: hotels.length,
+    resolvedGeo,
+    searchGeography,
+    ranking: 'rating_and_reviews',
+  };
 }
 
 async function route(request, env) {

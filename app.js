@@ -721,13 +721,19 @@ function renderAutomaticHotelSearch(section, config, inputs, updateCount) {
       for (const [index, input] of inputs.entries()) {
         const hotel = result.hotels[index];
         input.value = hotel?.url || '';
-        input.title = hotel?.name || '';
+        const details = [hotel?.name];
+        if (hotel?.rating != null) details.push(`рейтинг ${hotel.rating}`);
+        if (hotel?.reviewCount != null) details.push(`${hotel.reviewCount} ${plural(hotel.reviewCount, 'отзыв', 'отзыва', 'отзывов')}`);
+        input.title = details.filter(Boolean).join(' · ');
       }
       updateCount();
+      const areaNote = result.searchGeography && result.searchGeography !== state.geographies.find(item => item.id === config.geographyId)?.name
+        ? ` Поиск выполнен по региону «${result.searchGeography}».`
+        : '';
       status.className = 'automatic-search-status success';
       status.textContent = result.found === result.requested
-        ? `Готово: заполнено ${result.found} ${plural(result.found, 'ссылка', 'ссылки', 'ссылок')}.`
-        : `Нашлось ${result.found} из ${result.requested}. Остальные ссылки можно добавить вручную.`;
+        ? `Готово: добавлено ${result.found} ${plural(result.found, 'лучший отель', 'лучших отеля', 'лучших отелей')} по рейтингу и отзывам.${areaNote}`
+        : `Нашлось ${result.found} из ${result.requested}. Остальные ссылки можно добавить вручную.${areaNote}`;
     } catch (problem) {
       status.className = 'automatic-search-status error';
       status.textContent = problem.message;
