@@ -4,6 +4,7 @@ const state = {
   view: 'builder', catalog: 'geographies', editId: null,
   geographyId: null, themeIds: [null], hotelCount: 10, benefitType: null, discountPercent: null,
   themeDraft: [], lookup: null, config: null, editingLinks: false, viewedCollection: null,
+  pendingDeleteCollection: null, pendingDeleteButton: null, deletingCollection: false,
 };
 const geographyTypes = ['населенный пункт', 'страна', 'регион', 'местность'];
 const themeTypes = ['сценарий', 'состав', 'занятия', 'впечатления', 'удобства', 'расположение', 'характер', 'уровень', 'повод'];
@@ -948,7 +949,7 @@ function renderLibrary() {
     const end = appendText(open, 'span', 'row-end', '');
     appendText(end, 'span', '', linkCountText(collection.links.length));
     end.append(icon('ChevronRight'));
-    const remove = makeButton('', 'library-delete-button', () => removeCollection(collection, remove), 'Trash2');
+    const remove = makeButton('', 'library-delete-button', () => openDeleteModal(collection, remove), 'Trash2');
     const collectionTitle = titleFor(collection, collection);
     remove.title = 'Удалить подборку';
     remove.setAttribute('aria-label', `Удалить подборку «${collectionTitle}»`);
@@ -956,11 +957,42 @@ function renderLibrary() {
   }
 }
 
-async function removeCollection(collection, button) {
+function openDeleteModal(collection, button) {
   const collectionTitle = titleFor(collection, collection);
-  const confirmed = window.confirm(`Удалить подборку «${collectionTitle}»?\n\nОна исчезнет у всех сотрудников. Это действие нельзя отменить.`);
-  if (!confirmed) return;
+  state.pendingDeleteCollection = collection;
+  state.pendingDeleteButton = button;
+  $('#delete-collection-name').textContent = `«${collectionTitle}»`;
+  $('#delete-error').textContent = '';
+  $('#delete-modal').hidden = false;
+  document.body.classList.add('modal-open');
+  requestAnimationFrame(() => $('#delete-cancel').focus());
+}
+
+function closeDeleteModal(restoreFocus = true) {
+  if (state.deletingCollection) return;
+  const trigger = state.pendingDeleteButton;
+  $('#delete-modal').hidden = true;
+  document.body.classList.remove('modal-open');
+  state.pendingDeleteCollection = null;
+  state.pendingDeleteButton = null;
+  $('#delete-error').textContent = '';
+  if (restoreFocus) requestAnimationFrame(() => trigger?.focus());
+}
+
+async function confirmCollectionRemoval() {
+  const collection = state.pendingDeleteCollection;
+  const button = state.pendingDeleteButton;
+  if (!collection || state.deletingCollection) return;
+  const confirm = $('#delete-confirm');
+  const cancel = $('#delete-cancel');
+  const close = $('#delete-close');
+  state.deletingCollection = true;
   button.disabled = true;
+  confirm.disabled = true;
+  cancel.disabled = true;
+  close.disabled = true;
+  confirm.replaceChildren(icon('Trash2'), document.createTextNode('Удаляем…'));
+  $('#delete-error').textContent = '';
   try {
     await request(`/api/collections/${collection.id}`, 'DELETE', {});
     if (state.viewedCollection?.id === collection.id) closeCollectionModal();
@@ -976,10 +1008,21 @@ async function removeCollection(collection, button) {
       appendText(empty, 'h3', '', 'Подборка удалена');
       appendText(empty, 'p', '', 'Выберите параметры и создайте новую подборку.');
     }
-    await refreshData();
+    state.collections = state.collections.filter(item => item.id !== collection.id);
+    $('#nav-collection-count').textContent = state.collections.length;
+    $('#library-count').textContent = collectionCountText(state.collections.length);
+    renderLibrary();
+    state.deletingCollection = false;
+    closeDeleteModal(false);
   } catch (problem) {
-    window.alert(`Не удалось удалить подборку: ${problem.message}`);
+    $('#delete-error').textContent = `Не удалось удалить подборку: ${problem.message}`;
+  } finally {
+    state.deletingCollection = false;
     button.disabled = false;
+    confirm.disabled = false;
+    cancel.disabled = false;
+    close.disabled = false;
+    confirm.replaceChildren(icon('Trash2'), document.createTextNode('Удалить'));
   }
 }
 
@@ -1135,10 +1178,17 @@ async function init() {
     closeCollectionModal();
     if (collection) openCollection(collection);
   });
+  $('#delete-close').addEventListener('click', () => closeDeleteModal());
+  $('#delete-cancel').addEventListener('click', () => closeDeleteModal());
+  $('#delete-confirm').addEventListener('click', confirmCollectionRemoval);
+  $('#delete-modal').addEventListener('click', event => {
+    if (event.target === $('#delete-modal')) closeDeleteModal();
+  });
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
       if (!$('#geography-modal').hidden) closeGeographyModal();
       else if (!$('#theme-modal').hidden) closeThemeModal(false);
+      else if (!$('#delete-modal').hidden) closeDeleteModal();
       else if (!$('#collection-modal').hidden) closeCollectionModal();
     }
   });

@@ -156,6 +156,75 @@
 .collection-facts { margin-bottom: 8px; }
 .collection-links-head { margin-top: 22px; }
 .collection-modal-links { margin-bottom: 0; }
+.delete-dialog {
+  width: min(520px, 100%);
+  height: auto;
+  max-height: calc(100vh - 56px);
+  border-radius: 12px;
+}
+.delete-dialog-header {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 14px;
+}
+.delete-dialog-heading { min-width: 0; }
+.delete-dialog-heading .eyebrow { margin-bottom: 5px; }
+.delete-dialog-icon {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #fff0f1;
+  color: #bd3039;
+}
+.delete-dialog-icon svg { width: 21px; height: 21px; }
+.delete-dialog-body { padding: 2px 26px 22px 84px; }
+.delete-collection-name {
+  display: block;
+  margin-bottom: 9px;
+  color: #292e42;
+  font-size: 15px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.delete-dialog-body p {
+  margin: 0;
+  color: #696f82;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.delete-dialog-body .delete-error {
+  min-height: 20px;
+  margin-top: 12px;
+  color: #b52e37;
+  font-size: 13px;
+}
+.delete-dialog-footer {
+  justify-content: flex-end;
+  padding: 16px 26px;
+  background: #fff;
+}
+.danger-button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 18px;
+  border: 1px solid #b92f38;
+  border-radius: 6px;
+  background: #bd3039;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+}
+.danger-button:hover { background: #a8262f; }
+.danger-button:disabled { cursor: not-allowed; opacity: .55; }
+.danger-button svg { width: 17px; height: 17px; }
 .similar-carousel-section { margin-top: 28px; }
 .similar-carousel-head {
   margin-bottom: 12px;
@@ -513,4 +582,9 @@ select.input-control {
   .manual-links-head { align-items: flex-start; flex-direction: column; gap: 4px; }
   .hotel-link-fields { padding: 10px; }
   .hotel-link-field { grid-template-columns: 26px minmax(0, 1fr); gap: 7px; }
+  .delete-dialog { width: calc(100% - 28px); height: auto; margin: auto; border: 1px solid #e1e3ed; border-radius: 12px; }
+  .delete-dialog-header { grid-template-columns: 40px minmax(0, 1fr) 34px; gap: 11px; padding: 18px 16px 13px; }
+  .delete-dialog-icon { width: 40px; height: 40px; }
+  .delete-dialog-body { padding: 2px 16px 18px 67px; }
+  .delete-dialog-footer { padding: 14px 16px; }
 }

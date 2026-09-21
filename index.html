@@ -7,11 +7,11 @@
   <title>Подборки отелей | Туту</title>
   <link rel="icon" type="image/png" href="./brand.png">
   <link rel="stylesheet" href="./app.css">
-  <link rel="stylesheet" href="./result.css?v=3">
+  <link rel="stylesheet" href="./result.css?v=4">
   <script src="./config.js" defer></script>
   <script src="./catalog-data.js" defer></script>
   <script src="./icons.js?v=2" defer></script>
-  <script src="./app.js?v=5" defer></script>
+  <script src="./app.js?v=6" defer></script>
 </head>
 <body>
   <header class="site-header">
@@ -212,6 +212,28 @@
       <footer class="dialog-footer">
         <span id="collection-modal-count"></span>
         <button class="primary-button dialog-apply" id="collection-edit" type="button">Открыть в конструкторе</button>
+      </footer>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="delete-modal" hidden>
+    <section class="selection-dialog delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-dialog-title" aria-describedby="delete-dialog-description">
+      <header class="dialog-header delete-dialog-header">
+        <span class="delete-dialog-icon" data-icon="Trash2" aria-hidden="true"></span>
+        <div class="delete-dialog-heading">
+          <span class="eyebrow">Подтверждение</span>
+          <h2 id="delete-dialog-title">Удалить подборку?</h2>
+        </div>
+        <button class="dialog-close" id="delete-close" type="button" aria-label="Закрыть"><img src="./close.svg" alt=""></button>
+      </header>
+      <div class="delete-dialog-body">
+        <strong class="delete-collection-name" id="delete-collection-name"></strong>
+        <p id="delete-dialog-description">Подборка исчезнет у всех сотрудников. Отменить это действие не получится.</p>
+        <p class="delete-error" id="delete-error" role="alert"></p>
+      </div>
+      <footer class="dialog-footer delete-dialog-footer">
+        <button class="secondary-button" id="delete-cancel" type="button">Отмена</button>
+        <button class="danger-button" id="delete-confirm" type="button"><span data-icon="Trash2" aria-hidden="true"></span>Удалить</button>
       </footer>
     </section>
   </div>
