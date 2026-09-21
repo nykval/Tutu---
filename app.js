@@ -8,7 +8,7 @@ const state = {
 const geographyTypes = ['населенный пункт', 'страна', 'регион', 'местность'];
 const themeTypes = ['сценарий', 'состав', 'занятия', 'впечатления', 'удобства', 'расположение', 'характер', 'уровень', 'повод'];
 const benefitLabels = {action: 'Акция', promocode: 'Промокод'};
-const standaloneMode = location.protocol === 'file:';
+const standaloneMode = location.protocol === 'file:' || location.hostname.endsWith('.github.io');
 const storageKey = 'tutu-hotel-collections-v1';
 let localMemory = null;
 
@@ -43,11 +43,33 @@ function fieldCountText(value) {
 }
 
 function localSeed() {
-  const catalog = window.COLLECTION_CATALOG || {geographies: [], themes: []};
+  const catalog = window.COLLECTION_CATALOG || {geographies: [], themes: [], collections: []};
   return {
     geographies: catalog.geographies.map(([id, name, type]) => ({id, name, type})),
     themes: catalog.themes.map(([id, name, type]) => ({id, name, type})),
-    collections: [],
+    collections: (catalog.collections || []).map(item => ({
+      ...item,
+      themeIds: [...item.themeIds],
+      links: [...item.links],
+    })),
+  };
+}
+
+function mergeSeededData(saved) {
+  const seeded = localSeed();
+  const mergeCatalog = (current, defaults) => {
+    const currentIds = new Set(current.map(item => item.id));
+    return [...current, ...defaults.filter(item => !currentIds.has(item.id))];
+  };
+  const collectionIds = new Set(saved.collections.map(item => item.id));
+  const collectionKeys = new Set(saved.collections.map(localConfigKey));
+  const missingCollections = seeded.collections.filter(item => (
+    !collectionIds.has(item.id) && !collectionKeys.has(localConfigKey(item))
+  ));
+  return {
+    geographies: mergeCatalog(saved.geographies, seeded.geographies),
+    themes: mergeCatalog(saved.themes, seeded.themes),
+    collections: [...saved.collections, ...missingCollections],
   };
 }
 
@@ -58,7 +80,8 @@ function localRead() {
     if (saved) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed.geographies) && Array.isArray(parsed.themes) && Array.isArray(parsed.collections)) {
-        localMemory = parsed;
+        localMemory = mergeSeededData(parsed);
+        localWrite(localMemory);
         return localMemory;
       }
     }

@@ -108,6 +108,25 @@ def initialize_database():
                 "UPDATE collections SET key = ?, benefit_type = ? WHERE id = ?",
                 (key, benefit_type, row["id"]),
             )
+        for item in seed.get("collections", []):
+            config = normalize_config(conn, item)
+            if conn.execute(
+                "SELECT 1 FROM collections WHERE id = ? OR key = ?",
+                (item["id"], config["key"]),
+            ).fetchone():
+                continue
+            links = normalize_links(item.get("links"), config["hotelCount"])
+            conn.execute(
+                "INSERT INTO collections (id, key, geography_id, theme_ids, hotel_count, benefit_type, discount_percent, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (item["id"], config["key"], config["geographyId"], json.dumps(config["themeIds"]),
+                 config["hotelCount"], config["benefitType"], config["discountPercent"],
+                 item["createdAt"], item["updatedAt"]),
+            )
+            conn.executemany(
+                "INSERT INTO hotel_links (collection_id, position, url) VALUES (?, ?, ?)",
+                ((item["id"], index, url) for index, url in enumerate(links, start=1)),
+            )
 
 
 def catalog_rows(conn, table):

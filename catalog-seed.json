@@ -1507,5 +1507,63 @@
       "Фестиваль",
       "повод"
     ]
+  ],
+  "collections": [
+    {
+      "id": -1,
+      "geographyId": 2,
+      "themeIds": [
+        2,
+        66
+      ],
+      "hotelCount": 3,
+      "benefitType": null,
+      "discountPercent": null,
+      "links": [
+        "https://hotel.tutu.ru/h_otel_kopengagen_launzhotel/",
+        "https://hotel.tutu.ru/h_meblirovannye_komnaty_zolotoy_kolos/",
+        "https://hotel.tutu.ru/h_kortyard_marriott_moskva_paveletskaya/"
+      ],
+      "createdAt": "2026-09-20T12:00:00+00:00",
+      "updatedAt": "2026-09-20T12:00:00+00:00"
+    },
+    {
+      "id": -2,
+      "geographyId": 6,
+      "themeIds": [
+        14,
+        66,
+        91
+      ],
+      "hotelCount": 3,
+      "benefitType": null,
+      "discountPercent": null,
+      "links": [
+        "https://hotel.tutu.ru/h_sanktpeterburg/",
+        "https://hotel.tutu.ru/h_valo_biznes_rossiya_192102_g_sanktpeterburg_ul_salova_d_61_k3/",
+        "https://hotel.tutu.ru/h_izzziup_4_community_l_and_c_g_sanktpeterburg_ul_gorokhovaya_d_47v/"
+      ],
+      "createdAt": "2026-09-20T13:00:00+00:00",
+      "updatedAt": "2026-09-20T13:00:00+00:00"
+    },
+    {
+      "id": -3,
+      "geographyId": 7,
+      "themeIds": [
+        21,
+        67,
+        94
+      ],
+      "hotelCount": 3,
+      "benefitType": null,
+      "discountPercent": null,
+      "links": [
+        "https://hotel.tutu.ru/h_gostevoy_dom_oganessea/",
+        "https://hotel.tutu.ru/h_apartotel_bulgakov_by_sateen_group_ieahdjlj/",
+        "https://hotel.tutu.ru/h_otel_sochi_galereya_park/"
+      ],
+      "createdAt": "2026-09-20T14:00:00+00:00",
+      "updatedAt": "2026-09-20T14:00:00+00:00"
+    }
   ]
 }

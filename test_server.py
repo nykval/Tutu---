@@ -20,6 +20,7 @@ class CollectionTests(unittest.TestCase):
         with server.database() as conn:
             self.assertEqual(len(server.catalog_rows(conn, "geographies")), 200)
             self.assertEqual(len(server.catalog_rows(conn, "themes")), 101)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM collections").fetchone()[0], 3)
             item = server.create_catalog_item(conn, "geographies", {"name": "Тестовск", "type": "населенный пункт"})
             self.assertEqual(item["name"], "Тестовск")
             changed = server.update_catalog_item(conn, "geographies", item["id"], {"name": "Тестоград", "type": "местность"})
@@ -46,6 +47,17 @@ class CollectionTests(unittest.TestCase):
             self.assertEqual(updated["links"][0], "https://tutu.ru/hotel/c")
             with self.assertRaises(server.ApiError):
                 server.save_collection(conn, reordered, ["https://tutu.ru/hotel/x", "https://tutu.ru/hotel/y"])
+
+    def test_seed_collection_is_available(self):
+        with server.database() as conn:
+            config = server.normalize_config(
+                conn,
+                {"geographyId": 7, "themeIds": [21, 67, 94], "hotelCount": 3, "discountPercent": None},
+            )
+            exact = server.lookup_collection(conn, config)["exact"]
+            self.assertIsNotNone(exact)
+            self.assertEqual(exact["id"], -3)
+            self.assertEqual(len(exact["links"]), 3)
 
     def test_invalid_links_and_themes(self):
         with server.database() as conn:
