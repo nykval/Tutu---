@@ -647,10 +647,13 @@ function addDays(date, days) {
 function renderAutomaticHotelSearch(section, config, inputs, updateCount) {
   const card = appendText(section, 'div', 'automatic-search', '');
   const header = appendText(card, 'div', 'automatic-search-head', '');
-  const heading = appendText(header, 'div', '', '');
-  appendText(heading, 'h4', '', 'Найти отели автоматически');
-  appendText(heading, 'p', '', 'Tutu MCP подберёт реальные варианты и заполнит ссылки.');
-  appendText(header, 'span', 'mcp-badge', 'Tutu MCP');
+  const intro = appendText(header, 'div', 'automatic-search-intro', '');
+  const mark = appendText(intro, 'span', 'automatic-search-mark', '');
+  mark.append(icon('Search', 20));
+  const heading = appendText(intro, 'div', 'automatic-search-copy', '');
+  appendText(heading, 'h4', '', 'Найти отели на Туту');
+  appendText(heading, 'p', '', 'Найдём реальные варианты и сразу добавим их в подборку.');
+  appendText(header, 'span', 'mcp-badge', 'Автоматически');
 
   const controls = appendText(card, 'div', 'automatic-search-controls', '');
   const today = new Date();
@@ -695,12 +698,15 @@ function renderAutomaticHotelSearch(section, config, inputs, updateCount) {
   guests.value = config.themeIds.includes(14) ? '2' : '1';
   guestsLabel.append(guests);
 
-  const actions = appendText(card, 'div', 'automatic-search-actions', '');
+  const actions = appendText(controls, 'div', 'automatic-search-actions', '');
   const status = appendText(card, 'p', 'automatic-search-status', '');
-  const search = makeButton('Найти и заполнить', 'secondary-button automatic-search-button', async () => {
+  status.hidden = true;
+  const search = makeButton('Найти отели', 'primary-button automatic-search-button', async () => {
     status.className = 'automatic-search-status';
     status.textContent = 'Ищем подходящие отели на Туту…';
+    status.hidden = false;
     search.disabled = true;
+    search.replaceChildren(icon('Search', 18), document.createTextNode('Ищем…'));
     try {
       if (!checkIn.value || !checkOut.value) throw new Error('Укажите даты заезда и выезда.');
       const result = await requestHotelSearch({
@@ -727,12 +733,14 @@ function renderAutomaticHotelSearch(section, config, inputs, updateCount) {
       status.textContent = problem.message;
     } finally {
       search.disabled = false;
+      search.replaceChildren(icon('Search', 18), document.createTextNode('Найти отели'));
     }
-  });
+  }, 'Search');
   actions.append(search);
   if (standaloneMode) {
     search.disabled = true;
-    status.textContent = 'Автопоиск подготовлен и заработает после подключения общей серверной части.';
+    status.hidden = false;
+    status.textContent = 'Автопоиск станет доступен после подключения общего сервера.';
   }
   return card;
 }
@@ -777,6 +785,11 @@ function renderLinkEditor(root, config, existing) {
   updateCount();
   const automaticSearch = renderAutomaticHotelSearch(section, config, inputs, updateCount);
   section.insertBefore(automaticSearch, fields);
+  const manualHead = appendText(section, 'div', 'manual-links-head', '');
+  const manualCopy = appendText(manualHead, 'div', '', '');
+  appendText(manualCopy, 'h4', '', 'Ссылки в подборке');
+  appendText(manualCopy, 'p', '', 'Они заполнятся автоматически, но их можно изменить вручную.');
+  section.insertBefore(manualHead, fields);
   const actions = appendText(section, 'div', 'editor-actions', '');
   const error = appendText(section, 'p', 'form-error', '');
   const save = makeButton(existing ? 'Сохранить ссылки' : 'Добавить подборку', 'primary-button', async () => {
