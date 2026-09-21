@@ -227,7 +227,7 @@
 }
 #library-list .library-row {
   min-height: 96px;
-  padding: 20px 24px;
+  padding: 8px 12px 8px 24px;
   border: 1px solid #e4e7f2;
   border-radius: 8px;
   background: #fff;
@@ -237,6 +237,41 @@
   background: #fff;
   box-shadow: 0 10px 28px #30365a0f;
 }
+.library-row-open {
+  min-width: 0;
+  min-height: 78px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex: 1;
+  padding: 12px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+.library-delete-button {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #8b91a3;
+}
+.library-delete-button:hover,
+.library-delete-button:focus-visible {
+  border-color: #f0c9cd;
+  background: #fff4f5;
+  color: #bd3039;
+  outline: none;
+}
+.library-delete-button svg { width: 18px; height: 18px; }
 .site-header { background: #0c0b64; }
 .brand-image { display: block; width: 109px; height: 38px; object-fit: contain; flex: none; }
 @media (max-width: 560px) { .brand-image { width: 92px; height: 32px; } }

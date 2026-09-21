@@ -103,7 +103,7 @@ function corsHeaders(request, env) {
   if (!origin || !allowedOrigins(env).has(origin)) return {};
   return {
     'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
@@ -391,6 +391,16 @@ async function updateCollectionLinks(env, id, payload) {
   return {rawCollections: true, id};
 }
 
+async function deleteCollection(env, id) {
+  const row = await env.DB.prepare('SELECT id FROM collections WHERE id = ?').bind(id).first();
+  if (!row) throw new ApiError('Подборка не найдена.', 404);
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM hotel_links WHERE collection_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM collections WHERE id = ?').bind(id),
+  ]);
+  return {id, deleted: true};
+}
+
 function hotelSearchFilters(themeIds) {
   const ids = new Set(themeIds);
   const argumentsValue = {};
@@ -421,6 +431,24 @@ function geographyKey(value) {
 function hotelSearchGeography(geographyName, themeIds) {
   if (!themeIds.includes(COUNTRYSIDE_THEME_ID)) return geographyName;
   return COUNTRYSIDE_SEARCH_GEOGRAPHIES[geographyKey(geographyName)] || geographyName;
+}
+
+function countrysideHotelMatches(hotel, requestedGeographyName, themeIds) {
+  if (!themeIds.includes(COUNTRYSIDE_THEME_ID)) return true;
+  const name = geographyKey(hotel?.name);
+  const address = geographyKey(hotel?.address);
+  const combined = `${name} ${address}`;
+  if (/(хостел|hostel|shelter|апарт[ -]?отел|апартамент|apart|капсул|общежит|вокзал)/i.test(combined)) {
+    return false;
+  }
+  if (geographyKey(requestedGeographyName) === 'москва') {
+    const isMoscowRegion = /(московск(?:ая|ой)\s+област|подмосков)/i.test(address);
+    const isMoscowCity = /(^|[,\s])(?:г(?:ород)?\.?\s*)?москва(?:[,\s]|$)/i.test(address);
+    if (isMoscowCity && !isMoscowRegion) return false;
+  }
+  const leisureProperty = /(парк[ -]?отел|загород|эко|eco|усадьб|база отдыха|дом отдыха|санатор|курорт|resort|глэмп|коттедж|спа|spa|дач|турбаз|ферм)/i.test(name);
+  const ruralAddress = /(деревн|село|пос[её]лок|территор|урочище|лесн|берег|район|шоссе)/i.test(address);
+  return leisureProperty || ruralAddress;
 }
 
 function numericHotelValue(value) {
@@ -562,6 +590,7 @@ async function searchHotels(payload) {
   const themeIds = Array.isArray(payload.themeIds)
     ? payload.themeIds.map(value => positiveInteger(value, 1, 10000000, 'Тема'))
     : [];
+  const requestedGeographyName = String(payload.requestedGeographyName || geographyName).trim();
   const searchGeography = hotelSearchGeography(geographyName, themeIds);
   const baseArguments = {
     city_name: searchGeography,
@@ -587,6 +616,7 @@ async function searchHotels(payload) {
     resolvedGeo ||= meta.resolved_geo || null;
     const rows = Array.isArray(data.hotels) ? data.hotels : [];
     for (const hotel of rows) {
+      if (!countrysideHotelMatches(hotel, requestedGeographyName, themeIds)) continue;
       const offer = hotel?.best_offer;
       const link = offer?.checkout_url;
       if (typeof link !== 'string' || !/^https?:\/\//.test(link)) continue;
@@ -609,7 +639,10 @@ async function searchHotels(payload) {
     page += 1;
   }
   if (!candidates.length) {
-    throw new ApiError('Tutu не нашёл подходящих отелей. Попробуйте изменить даты или темы.', 404);
+    const message = themeIds.includes(COUNTRYSIDE_THEME_ID)
+      ? 'Не нашлось отелей, которые действительно подходят для загородного отдыха. Попробуйте другие даты или выберите регион.'
+      : 'Tutu не нашёл подходящих отелей. Попробуйте изменить даты или темы.';
+    throw new ApiError(message, 404);
   }
   const hotels = candidates.sort(compareHotelsByQuality).slice(0, requested);
   return {
@@ -632,6 +665,10 @@ async function route(request, env) {
   if (request.method === 'GET' && path === '/api/bootstrap') {
     return bootstrap(env);
   }
+  const collectionMatch = path.match(/^\/api\/collections\/(-?\d+)$/);
+  if (request.method === 'DELETE' && collectionMatch) {
+    return deleteCollection(env, Number(collectionMatch[1]));
+  }
   const payload = await readJson(request);
   if (request.method === 'POST' && path === '/api/lookup') {
     return lookupCollection(env, payload);
@@ -650,7 +687,6 @@ async function route(request, env) {
   if (request.method === 'PATCH' && catalogItemMatch) {
     return updateCatalogItem(env, catalogItemMatch[1], Number(catalogItemMatch[2]), payload);
   }
-  const collectionMatch = path.match(/^\/api\/collections\/(-?\d+)$/);
   if (request.method === 'PUT' && collectionMatch) {
     return updateCollectionLinks(env, Number(collectionMatch[1]), payload);
   }

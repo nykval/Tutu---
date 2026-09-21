@@ -8,6 +8,19 @@ const state = {
 const geographyTypes = ['населенный пункт', 'страна', 'регион', 'местность'];
 const themeTypes = ['сценарий', 'состав', 'занятия', 'впечатления', 'удобства', 'расположение', 'характер', 'уровень', 'повод'];
 const benefitLabels = {action: 'Акция', promocode: 'Промокод'};
+const countrysideThemeId = 8;
+const countrysideSearchAreas = Object.freeze({
+  'москва': 'Московская область',
+  'санкт-петербург': 'Ленинградская область',
+  'казань': 'Республика Татарстан',
+  'калининград': 'Калининградская область',
+  'петрозаводск': 'Республика Карелия',
+  'екатеринбург': 'Свердловская область',
+  'ярославль': 'Ярославская область',
+  'мурманск': 'Мурманская область',
+  'уфа': 'Республика Башкортостан',
+  'красноярск': 'Красноярский край',
+});
 const runtimeConfig = window.TUTU_COLLECTIONS_CONFIG || {};
 const apiBaseUrl = String(runtimeConfig.apiBaseUrl || '').trim().replace(/\/$/, '');
 const standaloneMode = !apiBaseUrl && (location.protocol === 'file:' || location.hostname.endsWith('.github.io'));
@@ -218,7 +231,15 @@ async function localRequest(path, method, body) {
     localWrite(data);
     return localHydrate(data, item);
   }
-  const collectionMatch = path.match(/^\/api\/collections\/(\d+)$/);
+  const collectionMatch = path.match(/^\/api\/collections\/(-?\d+)$/);
+  if (collectionMatch && method === 'DELETE') {
+    const id = Number(collectionMatch[1]);
+    const index = data.collections.findIndex(entry => entry.id === id);
+    if (index < 0) throw new Error('Подборка не найдена.');
+    data.collections.splice(index, 1);
+    localWrite(data);
+    return {id, deleted: true};
+  }
   if (collectionMatch && method === 'PUT') {
     const item = data.collections.find(entry => entry.id === Number(collectionMatch[1]));
     if (!item) throw new Error('Подборка не найдена.');
@@ -644,6 +665,13 @@ function addDays(date, days) {
   return result;
 }
 
+function automaticSearchGeography(config) {
+  const selected = state.geographies.find(item => item.id === config.geographyId);
+  if (!selected || !config.themeIds.includes(countrysideThemeId)) return selected?.name || '';
+  const key = selected.name.trim().toLocaleLowerCase('ru-RU').replace(/ё/g, 'е');
+  return countrysideSearchAreas[key] || selected.name;
+}
+
 function renderAutomaticHotelSearch(section, config, inputs, updateCount) {
   const card = appendText(section, 'div', 'automatic-search', '');
   const header = appendText(card, 'div', 'automatic-search-head', '');
@@ -711,7 +739,8 @@ function renderAutomaticHotelSearch(section, config, inputs, updateCount) {
       if (!checkIn.value || !checkOut.value) throw new Error('Укажите даты заезда и выезда.');
       const result = await requestHotelSearch({
         geographyId: config.geographyId,
-        geographyName: state.geographies.find(item => item.id === config.geographyId)?.name || '',
+        geographyName: automaticSearchGeography(config),
+        requestedGeographyName: state.geographies.find(item => item.id === config.geographyId)?.name || '',
         themeIds: config.themeIds,
         hotelCount: config.hotelCount,
         checkIn: checkIn.value,
@@ -911,14 +940,46 @@ function renderLibrary() {
   const items = state.collections.filter(item => !query || `${item.geography.name} ${item.themes.map(theme => theme.name).join(' ')}`.toLocaleLowerCase('ru').includes(query));
   if (!items.length) { appendText(root, 'div', 'list-empty', state.collections.length ? 'По этому запросу подборок нет.' : 'Пока нет сохранённых подборок. Соберите первую в конструкторе.'); return; }
   for (const collection of items) {
-    const row = makeButton('', 'library-row', () => openCollectionModal(collection));
-    const main = appendText(row, 'span', 'row-main', '');
+    const row = appendText(root, 'div', 'library-row', '');
+    const open = makeButton('', 'library-row-open', () => openCollectionModal(collection));
+    const main = appendText(open, 'span', 'row-main', '');
     appendText(main, 'span', 'row-title', titleFor(collection, collection));
     appendText(main, 'span', 'row-subtitle', summaryFor(collection, collection).join(' · '));
-    const end = appendText(row, 'span', 'row-end', '');
+    const end = appendText(open, 'span', 'row-end', '');
     appendText(end, 'span', '', linkCountText(collection.links.length));
     end.append(icon('ChevronRight'));
-    root.append(row);
+    const remove = makeButton('', 'library-delete-button', () => removeCollection(collection, remove), 'Trash2');
+    const collectionTitle = titleFor(collection, collection);
+    remove.title = 'Удалить подборку';
+    remove.setAttribute('aria-label', `Удалить подборку «${collectionTitle}»`);
+    row.append(open, remove);
+  }
+}
+
+async function removeCollection(collection, button) {
+  const collectionTitle = titleFor(collection, collection);
+  const confirmed = window.confirm(`Удалить подборку «${collectionTitle}»?\n\nОна исчезнет у всех сотрудников. Это действие нельзя отменить.`);
+  if (!confirmed) return;
+  button.disabled = true;
+  try {
+    await request(`/api/collections/${collection.id}`, 'DELETE', {});
+    if (state.viewedCollection?.id === collection.id) closeCollectionModal();
+    if (state.lookup?.exact?.id === collection.id) {
+      state.lookup = null;
+      state.config = null;
+      state.editingLinks = false;
+      $('#output-status').textContent = '';
+      const result = $('#result-content');
+      result.replaceChildren();
+      const empty = appendText(result, 'div', 'empty-state', '');
+      appendText(empty, 'span', 'empty-accent', '');
+      appendText(empty, 'h3', '', 'Подборка удалена');
+      appendText(empty, 'p', '', 'Выберите параметры и создайте новую подборку.');
+    }
+    await refreshData();
+  } catch (problem) {
+    window.alert(`Не удалось удалить подборку: ${problem.message}`);
+    button.disabled = false;
   }
 }
 
