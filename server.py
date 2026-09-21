@@ -9,7 +9,9 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qsl, urlsplit
+from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parent
@@ -23,9 +25,46 @@ THEME_TYPES = (
 STATIC_FILES = {
     "/": "index.html", "/app.css": "app.css", "/result.css": "result.css",
     "/app.js": "app.js", "/icons.js": "icons.js", "/brand.png": "brand.png",
-    "/catalog-data.js": "catalog-data.js", "/close.svg": "close.svg",
+    "/config.js": "config.js", "/catalog-data.js": "catalog-data.js", "/close.svg": "close.svg",
 }
 BENEFIT_TYPES = ("action", "promocode")
+MCP_URL = "https://mcp.tutu.ru/mcp"
+MCP_PROTOCOL_VERSION = "2025-06-18"
+MCP_TIMEOUT_SECONDS = 50
+
+THEME_HOTEL_AMENITIES = {
+    9: "spa",
+    15: "kid_friendly",
+    16: "kid_friendly",
+    17: "kid_friendly",
+    19: "pet_friendly",
+    20: "kid_friendly",
+    21: "beach",
+    48: "pool",
+    49: "pool",
+    50: "pool",
+    51: "pool",
+    52: "kids_pool",
+    53: "spa",
+    54: "sauna",
+    55: "sauna",
+    56: "spa",
+    57: "jacuzzi",
+    61: "parking",
+    63: "kid_friendly",
+    64: "fitness",
+    67: "beach",
+    68: "beach",
+}
+THEME_ROOM_AMENITIES = {
+    5: "workspace",
+    36: "sea_view",
+    37: "mountain_view",
+    38: "view",
+    60: "room_kitchen",
+    65: "workspace",
+}
+THEME_STARS = {90: 3, 91: 4, 92: 5, 93: 5}
 
 
 class ApiError(Exception):
@@ -366,6 +405,187 @@ def update_collection_links(conn, collection_id, links):
     return collection_payload(conn, conn.execute("SELECT * FROM collections WHERE id = ?", (collection_id,)).fetchone())
 
 
+def mcp_error_text(result):
+    messages = []
+    for item in result.get("content", []):
+        if isinstance(item, dict) and item.get("type") == "text" and item.get("text"):
+            messages.append(item["text"])
+    return " ".join(messages).strip()
+
+
+def mcp_tool_data(result):
+    if result.get("isError"):
+        raise ApiError(mcp_error_text(result) or "Tutu MCP не смог выполнить поиск.", 502)
+    structured = result.get("structuredContent")
+    if isinstance(structured, dict):
+        return structured
+    for item in result.get("content", []):
+        if not isinstance(item, dict) or item.get("type") != "text":
+            continue
+        try:
+            value = json.loads(item.get("text", ""))
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if isinstance(value, dict):
+            return value
+    raise ApiError("Tutu MCP вернул ответ в неподдерживаемом формате.", 502)
+
+
+def call_mcp_tool(name, arguments):
+    body = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": name, "arguments": arguments},
+    }).encode("utf-8")
+    request = Request(MCP_URL, data=body, method="POST", headers={
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
+        "User-Agent": "tutu-hotel-collections/1.0",
+    })
+    try:
+        with urlopen(request, timeout=MCP_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        raise ApiError(f"Tutu MCP временно недоступен: HTTP {error.code}.", 502) from error
+    except (URLError, TimeoutError) as error:
+        raise ApiError("Не удалось связаться с Tutu MCP. Попробуйте ещё раз.", 502) from error
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ApiError("Tutu MCP вернул некорректный ответ.", 502) from error
+    if "error" in payload:
+        message = payload["error"].get("message") if isinstance(payload["error"], dict) else None
+        raise ApiError(message or "Tutu MCP не смог выполнить поиск.", 502)
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        raise ApiError("Tutu MCP вернул пустой ответ.", 502)
+    return mcp_tool_data(result)
+
+
+def append_mcp_attribution(url):
+    base, separator, fragment = url.partition("#")
+    query = urlsplit(base).query
+    keys = {key for key, _ in parse_qsl(query, keep_blank_values=True)}
+    additions = []
+    if "utm_source" not in keys:
+        additions.append("utm_source=tutu-collections")
+    if "utm_medium" not in keys:
+        additions.append("utm_medium=mcp")
+    if additions:
+        base += ("&" if "?" in base else "?") + "&".join(additions)
+    return base + (separator + fragment if separator else "")
+
+
+def hotel_search_filters(theme_ids):
+    theme_ids = set(theme_ids)
+    arguments = {}
+    hotel_amenities = sorted({THEME_HOTEL_AMENITIES[item] for item in theme_ids if item in THEME_HOTEL_AMENITIES})
+    room_amenities = sorted({THEME_ROOM_AMENITIES[item] for item in theme_ids if item in THEME_ROOM_AMENITIES})
+    stars = sorted({THEME_STARS[item] for item in theme_ids if item in THEME_STARS})
+    if hotel_amenities:
+        arguments["hotel_amenities"] = hotel_amenities
+    if room_amenities:
+        arguments["room_amenities"] = room_amenities
+    if stars:
+        arguments["stars"] = stars
+    if 58 in theme_ids:
+        arguments["breakfast_included"] = True
+    if 59 in theme_ids:
+        arguments["meals"] = ["allinclusive"]
+    if 85 in theme_ids:
+        arguments["hotel_types"] = ["apartments"]
+    if 94 in theme_ids:
+        arguments["min_rating"] = 8
+    return arguments
+
+
+def parse_search_date(value, label):
+    if not isinstance(value, str):
+        raise ApiError(f"Укажите {label.lower()}.")
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError as error:
+        raise ApiError(f"{label}: используйте формат ГГГГ-ММ-ДД.") from error
+
+
+def search_hotels_with_mcp(conn, payload):
+    geography_id = positive_integer(payload.get("geographyId"), 1, 1_000_000, "География")
+    geography = conn.execute("SELECT id, name, type FROM geographies WHERE id = ?", (geography_id,)).fetchone()
+    if not geography or geography["type"] == "без географии":
+        raise ApiError("Для автоматического поиска выберите конкретную географию.")
+    check_in = parse_search_date(payload.get("checkIn"), "Дата заезда")
+    check_out = parse_search_date(payload.get("checkOut"), "Дата выезда")
+    if check_out <= check_in:
+        raise ApiError("Дата выезда должна быть позже даты заезда.")
+    adults = positive_integer(payload.get("adults"), 1, 6, "Количество гостей")
+    requested = positive_integer(payload.get("hotelCount"), 1, 100, "Количество отелей")
+    theme_ids = payload.get("themeIds")
+    if not isinstance(theme_ids, list):
+        raise ApiError("Темы подборки не найдены.")
+    theme_ids = [positive_integer(item, 1, 1_000_000, "Тема") for item in theme_ids]
+
+    base_arguments = {
+        "city_name": geography["name"],
+        "check_in": check_in.isoformat(),
+        "check_out": check_out.isoformat(),
+        "adults": adults,
+        "view": "compact",
+        **hotel_search_filters(theme_ids),
+    }
+    hotels = []
+    seen_links = set()
+    resolved_geo = None
+    page = 1
+    has_more = True
+    while len(hotels) < requested and page <= 10 and has_more:
+        arguments = {
+            **base_arguments,
+            "page": page,
+            "page_size": min(30, requested - len(hotels)),
+        }
+        data = call_mcp_tool("search_hotels", arguments)
+        meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+        resolved_geo = resolved_geo or meta.get("resolved_geo")
+        rows = data.get("hotels")
+        if not isinstance(rows, list):
+            rows = []
+        for hotel in rows:
+            if not isinstance(hotel, dict):
+                continue
+            offer = hotel.get("best_offer")
+            if not isinstance(offer, dict):
+                continue
+            link = offer.get("checkout_url")
+            if not isinstance(link, str) or not link.startswith(("http://", "https://")):
+                continue
+            link = append_mcp_attribution(link)
+            key = link.rstrip("/")
+            if key in seen_links:
+                continue
+            seen_links.add(key)
+            hotels.append({
+                "name": hotel.get("name") or "Отель",
+                "stars": hotel.get("stars"),
+                "rating": hotel.get("rating"),
+                "address": hotel.get("address"),
+                "price": offer.get("price"),
+                "url": link,
+            })
+            if len(hotels) >= requested:
+                break
+        has_more = bool(meta.get("has_more")) and bool(rows)
+        page += 1
+
+    if not hotels:
+        raise ApiError("Tutu не нашёл подходящих отелей. Попробуйте изменить даты или темы.", 404)
+    return {
+        "hotels": hotels,
+        "requested": requested,
+        "found": len(hotels),
+        "resolvedGeo": resolved_geo,
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "TutuCollections/1.0"
 
@@ -444,6 +664,9 @@ class Handler(BaseHTTPRequestHandler):
                 elif path == "/api/lookup":
                     response = lookup_collection(conn, normalize_config(conn, payload))
                     status = 200
+                elif path == "/api/hotel-search":
+                    response = search_hotels_with_mcp(conn, payload)
+                    status = 200
                 elif path == "/api/collections":
                     config = normalize_config(conn, payload)
                     response = save_collection(conn, config, payload.get("links"))
@@ -477,10 +700,14 @@ class Handler(BaseHTTPRequestHandler):
             self.check_local_request()
             payload = self.read_json()
             parts = path.strip("/").split("/")
-            if len(parts) != 3 or parts[:2] != ["api", "collections"] or not parts[2].isdigit():
+            try:
+                collection_id = int(parts[2]) if len(parts) == 3 else None
+            except ValueError:
+                collection_id = None
+            if len(parts) != 3 or parts[:2] != ["api", "collections"] or collection_id is None:
                 raise ApiError("Действие не найдено.", 404)
             with database() as conn:
-                response = update_collection_links(conn, int(parts[2]), payload.get("links"))
+                response = update_collection_links(conn, collection_id, payload.get("links"))
             self.send_json(response)
         except ApiError as error:
             self.send_json({"error": str(error)}, error.status)

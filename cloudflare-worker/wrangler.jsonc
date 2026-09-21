@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tutu-collections-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-21",
+  "vars": {
+    "ALLOWED_ORIGINS": "https://nykval.github.io"
+  }
+}

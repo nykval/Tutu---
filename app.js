@@ -8,7 +8,9 @@ const state = {
 const geographyTypes = ['населенный пункт', 'страна', 'регион', 'местность'];
 const themeTypes = ['сценарий', 'состав', 'занятия', 'впечатления', 'удобства', 'расположение', 'характер', 'уровень', 'повод'];
 const benefitLabels = {action: 'Акция', promocode: 'Промокод'};
-const standaloneMode = location.protocol === 'file:' || location.hostname.endsWith('.github.io');
+const runtimeConfig = window.TUTU_COLLECTIONS_CONFIG || {};
+const apiBaseUrl = String(runtimeConfig.apiBaseUrl || '').trim().replace(/\/$/, '');
+const standaloneMode = !apiBaseUrl && (location.protocol === 'file:' || location.hostname.endsWith('.github.io'));
 const storageKey = 'tutu-hotel-collections-v1';
 let localMemory = null;
 
@@ -281,22 +283,48 @@ function selectionChip(parent, item, removeLabel, onRemove) {
 
 async function request(path, method = 'GET', body) {
   if (standaloneMode) return localRequest(path, method, body);
-  const response = await fetch(path, {method, headers: body ? {'Content-Type': 'application/json'} : {}, body: body ? JSON.stringify(body) : undefined});
-  const data = await response.json();
+  const url = apiBaseUrl ? `${apiBaseUrl}${path}` : path;
+  const response = await fetch(url, {method, headers: body ? {'Content-Type': 'application/json'} : {}, body: body ? JSON.stringify(body) : undefined});
+  let data;
+  try {
+    data = await response.json();
+  } catch (_) {
+    throw new Error(response.ok ? 'Сервер вернул непонятный ответ.' : 'Сервер временно недоступен.');
+  }
   if (!response.ok) throw new Error(data.error || 'Не удалось выполнить действие.');
   return data;
 }
 
+async function requestHotelSearch(body) {
+  if (standaloneMode) {
+    throw new Error('Автопоиск станет доступен после подключения общей серверной части. Пока ссылки можно добавить вручную.');
+  }
+  return request('/api/hotel-search', 'POST', body);
+}
+
 async function refreshData() {
   const data = await request('/api/bootstrap');
-  state.geographies = data.geographies;
-  state.themes = data.themes;
-  state.collections = data.collections;
-  $('#catalog-caption').textContent = `${data.geographies.length} географий · ${data.themes.length} тем`;
-  $('#nav-collection-count').textContent = data.collections.length;
-  $('#library-count').textContent = collectionCountText(data.collections.length);
-  $('#geo-count').textContent = data.geographies.length;
-  $('#theme-count').textContent = data.themes.length;
+  if (data.rawCollections) {
+    const seeded = localSeed();
+    const mergeCatalog = (defaults, remote) => {
+      const items = new Map(defaults.map(item => [item.id, item]));
+      for (const item of remote || []) items.set(item.id, item);
+      return [...items.values()];
+    };
+    state.geographies = mergeCatalog(seeded.geographies, data.geographies);
+    state.themes = mergeCatalog(seeded.themes, data.themes);
+    const catalog = {geographies: state.geographies, themes: state.themes};
+    state.collections = (data.collections || []).map(item => localHydrate(catalog, item));
+  } else {
+    state.geographies = data.geographies;
+    state.themes = data.themes;
+    state.collections = data.collections;
+  }
+  $('#catalog-caption').textContent = `${state.geographies.length} географий · ${state.themes.length} тем`;
+  $('#nav-collection-count').textContent = state.collections.length;
+  $('#library-count').textContent = collectionCountText(state.collections.length);
+  $('#geo-count').textContent = state.geographies.length;
+  $('#theme-count').textContent = state.themes.length;
   renderGeographies();
   renderThemes();
   renderLibrary();
@@ -603,6 +631,112 @@ function getInputLinks(section) {
   return [...section.querySelectorAll('.hotel-link-input')].map(input => input.value.trim()).filter(Boolean);
 }
 
+function dateInputValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function addDays(date, days) {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+}
+
+function renderAutomaticHotelSearch(section, config, inputs, updateCount) {
+  const card = appendText(section, 'div', 'automatic-search', '');
+  const header = appendText(card, 'div', 'automatic-search-head', '');
+  const heading = appendText(header, 'div', '', '');
+  appendText(heading, 'h4', '', 'Найти отели автоматически');
+  appendText(heading, 'p', '', 'Tutu MCP подберёт реальные варианты и заполнит ссылки.');
+  appendText(header, 'span', 'mcp-badge', 'Tutu MCP');
+
+  const controls = appendText(card, 'div', 'automatic-search-controls', '');
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const defaultCheckIn = addDays(today, 7);
+  const defaultCheckOut = addDays(defaultCheckIn, 2);
+
+  const checkInLabel = appendText(controls, 'label', 'automatic-search-field', '');
+  appendText(checkInLabel, 'span', '', 'Заезд');
+  const checkIn = document.createElement('input');
+  checkIn.className = 'input-control';
+  checkIn.type = 'date';
+  checkIn.min = dateInputValue(today);
+  checkIn.value = dateInputValue(defaultCheckIn);
+  checkInLabel.append(checkIn);
+
+  const checkOutLabel = appendText(controls, 'label', 'automatic-search-field', '');
+  appendText(checkOutLabel, 'span', '', 'Выезд');
+  const checkOut = document.createElement('input');
+  checkOut.className = 'input-control';
+  checkOut.type = 'date';
+  checkOut.min = dateInputValue(addDays(defaultCheckIn, 1));
+  checkOut.value = dateInputValue(defaultCheckOut);
+  checkOutLabel.append(checkOut);
+  checkIn.addEventListener('change', () => {
+    if (!checkIn.value) return;
+    const minimum = addDays(new Date(`${checkIn.value}T00:00:00`), 1);
+    checkOut.min = dateInputValue(minimum);
+    if (!checkOut.value || checkOut.value < checkOut.min) checkOut.value = checkOut.min;
+  });
+
+  const guestsLabel = appendText(controls, 'label', 'automatic-search-field guests-field', '');
+  appendText(guestsLabel, 'span', '', 'Гостей');
+  const guests = document.createElement('select');
+  guests.className = 'input-control';
+  for (let value = 1; value <= 6; value += 1) {
+    const option = document.createElement('option');
+    option.value = String(value);
+    option.textContent = String(value);
+    guests.append(option);
+  }
+  guests.value = config.themeIds.includes(14) ? '2' : '1';
+  guestsLabel.append(guests);
+
+  const actions = appendText(card, 'div', 'automatic-search-actions', '');
+  const status = appendText(card, 'p', 'automatic-search-status', '');
+  const search = makeButton('Найти и заполнить', 'secondary-button automatic-search-button', async () => {
+    status.className = 'automatic-search-status';
+    status.textContent = 'Ищем подходящие отели на Туту…';
+    search.disabled = true;
+    try {
+      if (!checkIn.value || !checkOut.value) throw new Error('Укажите даты заезда и выезда.');
+      const result = await requestHotelSearch({
+        geographyId: config.geographyId,
+        geographyName: state.geographies.find(item => item.id === config.geographyId)?.name || '',
+        themeIds: config.themeIds,
+        hotelCount: config.hotelCount,
+        checkIn: checkIn.value,
+        checkOut: checkOut.value,
+        adults: Number(guests.value),
+      });
+      for (const [index, input] of inputs.entries()) {
+        const hotel = result.hotels[index];
+        input.value = hotel?.url || '';
+        input.title = hotel?.name || '';
+      }
+      updateCount();
+      status.className = 'automatic-search-status success';
+      status.textContent = result.found === result.requested
+        ? `Готово: заполнено ${result.found} ${plural(result.found, 'ссылка', 'ссылки', 'ссылок')}.`
+        : `Нашлось ${result.found} из ${result.requested}. Остальные ссылки можно добавить вручную.`;
+    } catch (problem) {
+      status.className = 'automatic-search-status error';
+      status.textContent = problem.message;
+    } finally {
+      search.disabled = false;
+    }
+  });
+  actions.append(search);
+  if (standaloneMode) {
+    search.disabled = true;
+    status.textContent = 'Автопоиск подготовлен и заработает после подключения общей серверной части.';
+  }
+  return card;
+}
+
 function renderLinkEditor(root, config, existing) {
   const section = appendText(root, 'section', 'url-editor', '');
   const head = appendText(section, 'div', 'result-section-head', '');
@@ -641,6 +775,8 @@ function renderLinkEditor(root, config, existing) {
     });
   }
   updateCount();
+  const automaticSearch = renderAutomaticHotelSearch(section, config, inputs, updateCount);
+  section.insertBefore(automaticSearch, fields);
   const actions = appendText(section, 'div', 'editor-actions', '');
   const error = appendText(section, 'p', 'form-error', '');
   const save = makeButton(existing ? 'Сохранить ссылки' : 'Добавить подборку', 'primary-button', async () => {
@@ -700,7 +836,16 @@ function renderResult() {
 }
 
 async function lookup(config) {
-  const result = await request('/api/lookup', 'POST', config);
+  const response = await request('/api/lookup', 'POST', config);
+  const hydrate = item => {
+    if (!item || item.geography) return item;
+    const hydrated = localHydrate({geographies: state.geographies, themes: state.themes}, item);
+    if (item.similarity) hydrated.similarity = item.similarity;
+    return hydrated;
+  };
+  const result = response.rawCollections
+    ? {exact: hydrate(response.exact), similar: (response.similar || []).map(hydrate)}
+    : response;
   state.config = config;
   state.lookup = result;
   state.editingLinks = false;

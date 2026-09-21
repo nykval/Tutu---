@@ -1,0 +1,15 @@
+{
+  "name": "tutu-collections-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create tutu-collections --binding DB --update-config",
+    "db:migrate": "wrangler d1 migrations apply tutu-collections --remote"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
