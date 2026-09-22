@@ -507,6 +507,24 @@
 .dialog-footer-summary { display: flex; align-items: center; gap: 18px; min-width: 0; }
 .dialog-apply { min-width: 112px; min-height: 38px; flex: none; }
 
+.selection-dialog.delete-dialog {
+  width: min(560px, calc(100vw - 56px));
+  height: auto;
+  min-height: 0;
+  max-height: calc(100vh - 56px);
+  overflow: visible;
+  border-radius: 12px;
+}
+.selection-dialog.delete-dialog .dialog-header {
+  padding: 24px 26px 14px;
+}
+.selection-dialog.delete-dialog .delete-dialog-body {
+  padding: 0 26px 24px 84px;
+}
+.selection-dialog.delete-dialog .delete-dialog-footer {
+  padding: 16px 26px;
+}
+
 select.input-control {
   appearance: none;
   -moz-appearance: none;
