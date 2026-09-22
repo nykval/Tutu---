@@ -140,6 +140,21 @@
             <input class="input-control" id="admin-name" type="text" maxlength="120" autocomplete="off" required>
             <label class="field-label" for="admin-type">Тип</label>
             <select class="input-control" id="admin-type" required></select>
+            <div class="admin-blocks" id="admin-blocks" hidden>
+              <h3>Блокировки</h3>
+              <div class="admin-block-field">
+                <label class="field-label" for="block-geo-search">Несовместимые географии</label>
+                <div id="block-geo-selected" class="block-selected"></div>
+                <input class="input-control" id="block-geo-search" type="search" autocomplete="off" placeholder="Найти географию">
+                <div id="block-geo-options" class="block-options"></div>
+              </div>
+              <div class="admin-block-field">
+                <label class="field-label" for="block-theme-search">Несовместимые темы</label>
+                <div id="block-theme-selected" class="block-selected"></div>
+                <input class="input-control" id="block-theme-search" type="search" autocomplete="off" placeholder="Найти тему">
+                <div id="block-theme-options" class="block-options"></div>
+              </div>
+            </div>
             <div class="admin-actions">
               <button class="primary-button" id="admin-save" type="submit">Добавить</button>
               <button class="secondary-button" id="admin-cancel" type="button" hidden>Отмена</button>

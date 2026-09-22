@@ -125,6 +125,11 @@ def initialize_database():
         """)
         seed = json.loads(SEED_PATH.read_text(encoding="utf-8"))
         for table, key in (("geographies", "geographies"), ("themes", "themes")):
+            columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+            if "blocked_geography_ids" not in columns:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN blocked_geography_ids TEXT NOT NULL DEFAULT '[]'")
+            if "blocked_theme_ids" not in columns:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN blocked_theme_ids TEXT NOT NULL DEFAULT '[]'")
             count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             if count == 0:
                 conn.executemany(
@@ -148,7 +153,7 @@ def initialize_database():
                 (key, benefit_type, row["id"]),
             )
         for item in seed.get("collections", []):
-            config = normalize_config(conn, item)
+            config = normalize_config(conn, item, check_blocks=False)
             if conn.execute(
                 "SELECT 1 FROM collections WHERE id = ? OR key = ?",
                 (item["id"], config["key"]),
@@ -169,7 +174,45 @@ def initialize_database():
 
 
 def catalog_rows(conn, table):
-    return [dict(row) for row in conn.execute(f"SELECT id, name, type FROM {table} ORDER BY id")]
+    rows = conn.execute(f"SELECT id, name, type, blocked_geography_ids, blocked_theme_ids FROM {table} ORDER BY id")
+    return [catalog_row(row) for row in rows]
+
+
+def catalog_row(row):
+    return {"id": row["id"], "name": row["name"], "type": row["type"],
+            "blockedGeographyIds": json.loads(row["blocked_geography_ids"]),
+            "blockedThemeIds": json.loads(row["blocked_theme_ids"])}
+
+
+def catalog_blocks(conn, payload, table, item_id=None):
+    values = []
+    for target, key in (("geographies", "blockedGeographyIds"), ("themes", "blockedThemeIds")):
+        ids = payload.get(key, [])
+        if not isinstance(ids, list) or len(ids) != len(set(map(str, ids))) or any(
+            type(value) is not int or value == 1 or (target == table and value == item_id) for value in ids
+        ):
+            raise ApiError("В блокировках есть недопустимый элемент.")
+        if ids:
+            count = conn.execute(
+                f"SELECT COUNT(*) FROM {target} WHERE id IN ({','.join('?' for _ in ids)})", ids
+            ).fetchone()[0]
+            if count != len(ids):
+                raise ApiError("Один из заблокированных элементов не найден.")
+        values.append(json.dumps(ids))
+    return values
+
+
+def config_conflict(conn, geography_id, theme_ids):
+    geo = catalog_row(conn.execute("SELECT * FROM geographies WHERE id = ?", (geography_id,)).fetchone())
+    themes = [catalog_row(conn.execute("SELECT * FROM themes WHERE id = ?", (value,)).fetchone()) for value in theme_ids]
+    for theme in themes:
+        if theme["id"] in geo["blockedThemeIds"] or geography_id in theme["blockedGeographyIds"]:
+            return f"«{geo['name']}» не сочетается с темой «{theme['name']}»."
+    for index, first in enumerate(themes):
+        for second in themes[index + 1:]:
+            if second["id"] in first["blockedThemeIds"] or first["id"] in second["blockedThemeIds"]:
+                return f"Темы «{first['name']}» и «{second['name']}» не сочетаются."
+    return None
 
 
 def clean_label(value, label):
@@ -195,14 +238,15 @@ def catalog_input(payload, table):
 
 def create_catalog_item(conn, table, payload):
     name, kind = catalog_input(payload, table)
+    blocked_geos, blocked_themes = catalog_blocks(conn, payload, table)
     try:
         cursor = conn.execute(
-            f"INSERT INTO {table} (name, name_key, type) VALUES (?, ?, ?)",
-            (name, name.casefold(), kind),
+            f"INSERT INTO {table} (name, name_key, type, blocked_geography_ids, blocked_theme_ids) VALUES (?, ?, ?, ?, ?)",
+            (name, name.casefold(), kind, blocked_geos, blocked_themes),
         )
     except sqlite3.IntegrityError as error:
         raise ApiError("Такое название с этим типом уже есть.", 409) from error
-    return dict(conn.execute(f"SELECT id, name, type FROM {table} WHERE id = ?", (cursor.lastrowid,)).fetchone())
+    return catalog_row(conn.execute(f"SELECT * FROM {table} WHERE id = ?", (cursor.lastrowid,)).fetchone())
 
 
 def update_catalog_item(conn, table, item_id, payload):
@@ -211,14 +255,15 @@ def update_catalog_item(conn, table, item_id, payload):
     if not conn.execute(f"SELECT 1 FROM {table} WHERE id = ?", (item_id,)).fetchone():
         raise ApiError("Элемент справочника не найден.", 404)
     name, kind = catalog_input(payload, table)
+    blocked_geos, blocked_themes = catalog_blocks(conn, payload, table, item_id)
     try:
         conn.execute(
-            f"UPDATE {table} SET name = ?, name_key = ?, type = ? WHERE id = ?",
-            (name, name.casefold(), kind, item_id),
+            f"UPDATE {table} SET name = ?, name_key = ?, type = ?, blocked_geography_ids = ?, blocked_theme_ids = ? WHERE id = ?",
+            (name, name.casefold(), kind, blocked_geos, blocked_themes, item_id),
         )
     except sqlite3.IntegrityError as error:
         raise ApiError("Такое название с этим типом уже есть.", 409) from error
-    return dict(conn.execute(f"SELECT id, name, type FROM {table} WHERE id = ?", (item_id,)).fetchone())
+    return catalog_row(conn.execute(f"SELECT * FROM {table} WHERE id = ?", (item_id,)).fetchone())
 
 
 def positive_integer(value, minimum, maximum, label):
@@ -244,7 +289,7 @@ def count_text(value, one, few, many):
     return f"{value} {plural(value, one, few, many)}"
 
 
-def normalize_config(conn, payload):
+def normalize_config(conn, payload, check_blocks=True):
     if not isinstance(payload, dict):
         raise ApiError("Неверные параметры подборки.")
     geography_id = positive_integer(payload.get("geographyId"), 1, 1_000_000, "География")
@@ -263,6 +308,9 @@ def normalize_config(conn, payload):
     ).fetchone()[0]
     if found != len(theme_ids):
         raise ApiError("Одна из тем не найдена.")
+    conflict = config_conflict(conn, geography_id, theme_ids) if check_blocks else None
+    if conflict:
+        raise ApiError(conflict)
     hotel_count = positive_integer(payload.get("hotelCount"), 1, 100, "Количество отелей")
     discount = payload.get("discountPercent")
     benefit_type = None
@@ -631,6 +679,7 @@ class Handler(BaseHTTPRequestHandler):
                         "SELECT * FROM collections ORDER BY updated_at DESC, id DESC"
                     )]
                     self.send_json({
+                        "supportsBlocks": True,
                         "geographies": catalog_rows(conn, "geographies"),
                         "themes": catalog_rows(conn, "themes"),
                         "collections": collections,

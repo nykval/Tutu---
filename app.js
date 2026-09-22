@@ -4,6 +4,8 @@ const state = {
   view: 'builder', catalog: 'geographies', editId: null,
   geographyId: null, themeIds: [null], hotelCount: 10, benefitType: null, discountPercent: null,
   themeDraft: [], lookup: null, config: null, editingLinks: false, viewedCollection: null,
+  blockDraft: {blockedGeographyIds: [], blockedThemeIds: []},
+  blocksSupported: false,
   pendingDeleteCollection: null, pendingDeleteButton: null, deletingCollection: false,
 };
 const geographyTypes = ['населенный пункт', 'страна', 'регион', 'местность'];
@@ -89,6 +91,29 @@ function mergeSeededData(saved) {
   };
 }
 
+function blockedIds(item, field) {
+  return Array.isArray(item?.[field]) ? item[field] : [];
+}
+
+function conflictFor(geographies, themes, geographyId, themeIds) {
+  const geo = geographies.find(item => item.id === geographyId);
+  const selected = themeIds.map(id => themes.find(item => item.id === id)).filter(Boolean);
+  for (const theme of selected) {
+    if (blockedIds(geo, 'blockedThemeIds').includes(theme.id) || blockedIds(theme, 'blockedGeographyIds').includes(geographyId)) {
+      return `«${geo.name}» не сочетается с темой «${theme.name}».`;
+    }
+  }
+  for (let i = 0; i < selected.length; i++) {
+    for (let j = i + 1; j < selected.length; j++) {
+      const first = selected[i], second = selected[j];
+      if (blockedIds(first, 'blockedThemeIds').includes(second.id) || blockedIds(second, 'blockedThemeIds').includes(first.id)) {
+        return `Темы «${first.name}» и «${second.name}» не сочетаются.`;
+      }
+    }
+  }
+  return null;
+}
+
 function localRead() {
   if (localMemory) return localMemory;
   try {
@@ -122,6 +147,8 @@ function localConfig(data, payload) {
   if (!data.geographies.some(item => item.id === geographyId)) throw new Error('География не найдена.');
   if (themeIds.length < 1 || themeIds.length > 3 || themeIds.some(id => !data.themes.some(item => item.id === id))) throw new Error('Выберите от одной до трёх тем.');
   if (new Set(themeIds).size !== themeIds.length || (themeIds.includes(1) && themeIds.length > 1)) throw new Error('Темы не должны повторяться; «Без темы» выбирается отдельно.');
+  const conflict = conflictFor(data.geographies, data.themes, geographyId, themeIds);
+  if (conflict) throw new Error(conflict);
   if (!Number.isInteger(hotelCount) || hotelCount < 1 || hotelCount > 100) throw new Error('Количество отелей: укажите целое число от 1 до 100.');
   if (discountPercent !== null && (!Number.isInteger(discountPercent) || discountPercent < 1 || discountPercent > 90)) throw new Error('Выгода: укажите целое число от 1 до 90.');
   if (benefitType !== null && !benefitLabels[benefitType]) throw new Error('Выберите тип выгоды.');
@@ -196,21 +223,32 @@ function localCatalogItem(data, table, payload, id = null) {
   if (!allowed.includes(type)) throw new Error('Выберите тип из справочника.');
   if (data[table].some(item => item.id !== id && item.name.toLocaleLowerCase('ru') === name.toLocaleLowerCase('ru') && item.type === type)) throw new Error('Такое название с этим типом уже есть.');
   if (id === 1) throw new Error('Служебное значение нельзя изменить.');
+  const blockedGeographyIds = validateBlockedIds(data.geographies, payload.blockedGeographyIds, table === 'geographies' ? id : null);
+  const blockedThemeIds = validateBlockedIds(data.themes, payload.blockedThemeIds, table === 'themes' ? id : null);
   if (id !== null) {
     const item = data[table].find(entry => entry.id === id);
     if (!item) throw new Error('Элемент справочника не найден.');
-    Object.assign(item, {name, type});
+    Object.assign(item, {name, type, blockedGeographyIds, blockedThemeIds});
     return {...item};
   }
-  const item = {id: Math.max(0, ...data[table].map(entry => entry.id)) + 1, name, type};
+  const item = {id: Math.max(0, ...data[table].map(entry => entry.id)) + 1, name, type, blockedGeographyIds, blockedThemeIds};
   data[table].push(item);
   return {...item};
+}
+
+function validateBlockedIds(items, values, selfId) {
+  if (!Array.isArray(values)) throw new Error('Неверный список блокировок.');
+  const ids = [...new Set(values)];
+  if (ids.length !== values.length || ids.some(id => !Number.isInteger(id) || id === 1 || id === selfId || !items.some(item => item.id === id))) {
+    throw new Error('В блокировках есть недопустимый элемент.');
+  }
+  return ids;
 }
 
 async function localRequest(path, method, body) {
   const data = localRead();
   if (path === '/api/bootstrap' && method === 'GET') {
-    return {geographies: data.geographies.map(item => ({...item})), themes: data.themes.map(item => ({...item})), collections: data.collections.map(item => localHydrate(data, item)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))};
+    return {supportsBlocks: true, geographies: data.geographies.map(item => ({...item})), themes: data.themes.map(item => ({...item})), collections: data.collections.map(item => localHydrate(data, item)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))};
   }
   const catalogMatch = path.match(/^\/api\/(geographies|themes)(?:\/(\d+))?$/);
   if (catalogMatch && ['POST', 'PATCH'].includes(method)) {
@@ -326,6 +364,7 @@ async function requestHotelSearch(body) {
 
 async function refreshData() {
   const data = await request('/api/bootstrap');
+  state.blocksSupported = data.supportsBlocks === true;
   if (data.rawCollections) {
     const seeded = localSeed();
     const mergeCatalog = (defaults, remote) => {
@@ -415,6 +454,7 @@ function renderGeographyGroups() {
     appendText(head, 'span', '', String(items.length));
     const grid = appendText(group, 'div', 'geography-grid', '');
     for (const item of items) {
+      const conflict = conflictFor(state.geographies, state.themes, item.id, state.themeIds.filter(Boolean));
       const option = makeButton('', `geography-option${item.id === state.geographyId ? ' selected' : ''}`, () => {
         state.geographyId = item.id;
         invalidateResult();
@@ -424,6 +464,11 @@ function renderGeographyGroups() {
       const marker = appendText(option, 'span', 'option-icon', '');
       marker.append(icon(type === 'страна' ? 'MapPin' : 'MapPin', 17));
       appendText(option, 'span', 'geography-option-name', item.name);
+      if (conflict && item.id !== state.geographyId) {
+        option.disabled = true;
+        option.title = conflict;
+        appendText(option, 'span', 'option-reason', conflict);
+      }
       if (item.id === state.geographyId) option.append(icon('Check', 17));
       grid.append(option);
     }
@@ -511,13 +556,19 @@ function renderThemeGroups() {
     for (const item of items) {
       const isSelected = state.themeDraft.includes(item.id);
       const limitReached = state.themeDraft.length >= 3 && !isSelected && item.id !== noThemeId;
+      const otherThemes = state.themeDraft.filter(id => id !== item.id && id !== noThemeId);
+      const conflict = item.id === noThemeId ? null : conflictFor(state.geographies, state.themes, state.geographyId, [...otherThemes, item.id]);
       const option = makeButton('', `geography-option theme-option${isSelected ? ' selected' : ''}`, () => {
         if (isSelected) state.themeDraft = state.themeDraft.filter(id => id !== item.id);
         else if (item.id === noThemeId) state.themeDraft = [item.id];
         else if (state.themeDraft.length < 3) state.themeDraft = [...state.themeDraft.filter(id => id !== noThemeId), item.id];
         renderThemeGroups();
       });
-      option.disabled = limitReached;
+      option.disabled = !isSelected && (limitReached || Boolean(conflict));
+      if (conflict && !isSelected) {
+        option.title = conflict;
+        appendText(option, 'span', 'option-reason', conflict);
+      }
       option.setAttribute('aria-pressed', String(isSelected));
       const marker = appendText(option, 'span', 'option-icon', '');
       marker.append(icon('Tags', 16));
@@ -579,6 +630,8 @@ function getConfig() {
   const benefitType = discountPercent === null ? null : $('#benefit-type').value;
   if (!geographyId) throw new Error('Выберите географию.');
   if (themeIds.some(id => !id)) throw new Error('Выберите тему в каждом поле.');
+  const conflict = conflictFor(state.geographies, state.themes, geographyId, themeIds);
+  if (conflict) throw new Error(conflict);
   if (!Number.isInteger(hotelCount) || hotelCount < 1 || hotelCount > 100) throw new Error('Укажите от 1 до 100 отелей.');
   if (discountPercent !== null && (!Number.isInteger(discountPercent) || discountPercent < 1 || discountPercent > 90)) throw new Error('Укажите размер выгоды от 1 до 90%.');
   if (benefitType !== null && !benefitLabels[benefitType]) throw new Error('Выберите тип выгоды.');
@@ -1077,12 +1130,55 @@ function openCollectionModal(collection) {
 
 function resetAdminForm() {
   state.editId = null;
+  state.blockDraft = {blockedGeographyIds: [], blockedThemeIds: []};
   $('#admin-form').reset();
   $('#editor-title').textContent = state.catalog === 'geographies' ? 'Новая география' : 'Новая тема';
   $('#admin-save').textContent = 'Добавить';
   $('#admin-cancel').hidden = true;
   $('#admin-message').textContent = '';
   $('#admin-message').className = 'form-message';
+  $('#block-geo-search').value = '';
+  $('#block-theme-search').value = '';
+  renderAdminBlocks();
+}
+
+function renderAdminBlocks() {
+  $('#admin-blocks').hidden = state.editId === null || !state.blocksSupported;
+  if (state.editId === null || !state.blocksSupported) return;
+  $('#block-geo-search').closest('.admin-block-field').hidden = state.catalog === 'geographies';
+  for (const [catalog, field, prefix] of [
+    [state.geographies, 'blockedGeographyIds', 'geo'],
+    [state.themes, 'blockedThemeIds', 'theme'],
+  ]) {
+    const selected = $(`#block-${prefix}-selected`);
+    const options = $(`#block-${prefix}-options`);
+    const fieldNode = options.parentElement;
+    const query = $(`#block-${prefix}-search`).value.trim().toLocaleLowerCase('ru');
+    selected.replaceChildren();
+    options.replaceChildren();
+    fieldNode.querySelector('.block-incoming')?.remove();
+    for (const id of state.blockDraft[field]) {
+      const item = catalog.find(entry => entry.id === id);
+      if (item) selectionChip(selected, item, `Снять блокировку «${item.name}»`, () => {
+        state.blockDraft[field] = state.blockDraft[field].filter(value => value !== id);
+        renderAdminBlocks();
+      });
+    }
+    const candidates = catalog.filter(item => item.id !== 1 && !(field === (state.catalog === 'geographies' ? 'blockedGeographyIds' : 'blockedThemeIds') && item.id === state.editId) && !state.blockDraft[field].includes(item.id) && (!query || item.name.toLocaleLowerCase('ru').includes(query))).slice(0, 8);
+    for (const item of candidates) {
+      const choice = makeButton(item.name, 'block-option', () => {
+        state.blockDraft[field].push(item.id);
+        $(`#block-${prefix}-search`).value = '';
+        renderAdminBlocks();
+      }, 'Plus');
+      options.append(choice);
+    }
+    if (!candidates.length) appendText(options, 'span', 'block-empty', 'Ничего не найдено');
+    const incoming = catalog.filter(item => item.id !== state.editId && blockedIds(item, state.catalog === 'geographies' ? 'blockedGeographyIds' : 'blockedThemeIds').includes(state.editId));
+    if (incoming.length) {
+      appendText(fieldNode, 'div', 'block-incoming', `Также заблокировано в карточке: ${incoming.map(item => item.name).join(', ')}. Для снятия откройте ту карточку.`);
+    }
+  }
 }
 
 function renderAdminTypes() {
@@ -1117,12 +1213,21 @@ function setCatalog(catalog) {
 
 function editCatalogItem(item) {
   state.editId = item.id;
+  $('#block-geo-search').value = '';
+  $('#block-theme-search').value = '';
+  state.blockDraft = {
+    blockedGeographyIds: [...blockedIds(item, 'blockedGeographyIds')],
+    blockedThemeIds: [...blockedIds(item, 'blockedThemeIds')],
+  };
   $('#editor-title').textContent = state.catalog === 'geographies' ? 'Изменить географию' : 'Изменить тему';
   $('#admin-name').value = item.name;
   $('#admin-type').value = item.type;
   $('#admin-save').textContent = 'Сохранить';
   $('#admin-cancel').hidden = false;
   $('#admin-message').textContent = '';
+  if (!state.blocksSupported) $('#admin-message').textContent = 'Блокировки станут доступны после обновления общего сервера.';
+  $('#admin-list').querySelectorAll('.admin-card').forEach(card => card.classList.toggle('active', card.dataset.id === String(item.id)));
+  renderAdminBlocks();
   $('#admin-name').focus();
 }
 
@@ -1134,15 +1239,15 @@ function renderAdminList() {
   const items = source.filter(item => !query || `${item.name} ${item.type}`.toLocaleLowerCase('ru').includes(query));
   if (!items.length) { appendText(root, 'div', 'list-empty', 'Ничего не найдено.'); return; }
   for (const item of items) {
-    const row = appendText(root, 'div', 'admin-row', '');
-    appendText(row, 'span', 'admin-row-name', item.name);
-    chip(row, item.type);
-    if (item.id !== 1) {
-      const edit = makeButton('', 'icon-button', () => editCatalogItem(item), 'Pencil');
-      edit.title = 'Изменить';
-      edit.setAttribute('aria-label', `Изменить ${item.name}`);
-      row.append(edit);
-    }
+    const row = makeButton('', `admin-card${state.editId === item.id ? ' active' : ''}`, () => { if (item.id !== 1) editCatalogItem(item); });
+    row.dataset.id = item.id;
+    row.disabled = item.id === 1;
+    const main = appendText(row, 'span', 'admin-card-main', '');
+    appendText(main, 'span', 'admin-row-name', item.name);
+    const total = blockedIds(item, 'blockedGeographyIds').length + blockedIds(item, 'blockedThemeIds').length;
+    appendText(main, 'span', 'admin-card-meta', total ? `${item.type} · ${countText(total, ['блокировка', 'блокировки', 'блокировок'])}` : item.type);
+    if (item.id !== 1) row.append(icon('ChevronRight', 18));
+    root.append(row);
   }
 }
 
@@ -1215,6 +1320,8 @@ async function init() {
   });
   $('#library-search').addEventListener('input', renderLibrary);
   $('#admin-search').addEventListener('input', renderAdminList);
+  $('#block-geo-search').addEventListener('input', renderAdminBlocks);
+  $('#block-theme-search').addEventListener('input', renderAdminBlocks);
   $('#admin-cancel').addEventListener('click', resetAdminForm);
   $('#admin-form').addEventListener('submit', async event => {
     event.preventDefault();
@@ -1225,10 +1332,14 @@ async function init() {
     const type = $('#admin-type').value;
     if (!name || !type) {message.textContent = 'Укажите название и тип.'; return;}
     const editId = state.editId;
+    if (!state.blocksSupported && (state.blockDraft.blockedGeographyIds.length || state.blockDraft.blockedThemeIds.length)) {
+      message.textContent = 'Общий сервер пока не поддерживает блокировки.';
+      return;
+    }
     const button = $('#admin-save');
     button.disabled = true;
     try {
-      await request(`/api/${state.catalog}${editId ? `/${editId}` : ''}`, editId ? 'PATCH' : 'POST', {name, type});
+      await request(`/api/${state.catalog}${editId ? `/${editId}` : ''}`, editId ? 'PATCH' : 'POST', {name, type, ...state.blockDraft});
       await refreshData();
       resetAdminForm();
       message.className = 'form-message success';

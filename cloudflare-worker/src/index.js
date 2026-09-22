@@ -233,9 +233,52 @@ async function allCollections(env) {
 
 async function catalogRows(env, catalog) {
   const result = await env.DB.prepare(
-    'SELECT id, name, type FROM catalog_items WHERE catalog = ? ORDER BY name_key, id'
+    'SELECT id, name, type, blocked_geography_ids, blocked_theme_ids FROM catalog_items WHERE catalog = ? ORDER BY name_key, id'
   ).bind(catalog).all();
-  return result.results || [];
+  return (result.results || []).map(row => ({
+    id: row.id, name: row.name, type: row.type,
+    blockedGeographyIds: JSON.parse(row.blocked_geography_ids),
+    blockedThemeIds: JSON.parse(row.blocked_theme_ids),
+  }));
+}
+
+async function validateBlocks(env, catalog, payload, ownId = null) {
+  const result = {};
+  for (const [target, field] of [['geographies', 'blockedGeographyIds'], ['themes', 'blockedThemeIds']]) {
+    const ids = payload[field] ?? [];
+    if (!Array.isArray(ids) || new Set(ids).size !== ids.length || ids.some(id =>
+      !Number.isInteger(id) || id === 1 || (target === catalog && id === ownId)
+    )) throw new ApiError('В блокировках есть недопустимый элемент.');
+    const available = await catalogRows(env, target);
+    if (ids.some(id => id >= 1000000 && !available.some(item => item.id === id))) {
+      throw new ApiError('Один из заблокированных элементов не найден.');
+    }
+    result[field] = ids;
+  }
+  return result;
+}
+
+async function validateCombination(env, config) {
+  const [geographies, themes] = await Promise.all([catalogRows(env, 'geographies'), catalogRows(env, 'themes')]);
+  const geography = geographies.find(item => item.id === config.geographyId) || {
+    id: config.geographyId, name: `География ${config.geographyId}`, blockedGeographyIds: [], blockedThemeIds: [],
+  };
+  const selected = config.themeIds.map(id => themes.find(item => item.id === id) || {
+    id, name: `Тема ${id}`, blockedGeographyIds: [], blockedThemeIds: [],
+  });
+  for (const theme of selected) {
+    if (geography.blockedThemeIds.includes(theme.id) || theme.blockedGeographyIds.includes(geography.id)) {
+      throw new ApiError(`«${geography.name}» не сочетается с темой «${theme.name}».`);
+    }
+  }
+  for (let i = 0; i < selected.length; i++) {
+    for (let j = i + 1; j < selected.length; j++) {
+      const first = selected[i], second = selected[j];
+      if (first.blockedThemeIds.includes(second.id) || second.blockedThemeIds.includes(first.id)) {
+        throw new ApiError(`Темы «${first.name}» и «${second.name}» не сочетаются.`);
+      }
+    }
+  }
 }
 
 async function bootstrap(env) {
@@ -244,7 +287,7 @@ async function bootstrap(env) {
     catalogRows(env, 'themes'),
     allCollections(env),
   ]);
-  return {rawCollections: true, geographies, themes, collections};
+  return {rawCollections: true, supportsBlocks: true, geographies, themes, collections};
 }
 
 function catalogSettings(catalog) {
@@ -266,33 +309,36 @@ function normalizeCatalogItem(catalog, payload) {
 
 async function createCatalogItem(env, catalog, payload) {
   const item = normalizeCatalogItem(catalog, payload);
+  const blocks = await validateBlocks(env, catalog, payload);
   const next = await env.DB.prepare(
     'SELECT MAX(id) AS max_id FROM catalog_items WHERE catalog = ? AND id >= ?'
   ).bind(catalog, item.firstId).first();
   const id = Math.max(item.firstId, Number(next?.max_id || 0) + 1);
   try {
     await env.DB.prepare(
-      'INSERT INTO catalog_items (id, catalog, name, name_key, type) VALUES (?, ?, ?, ?, ?)'
-    ).bind(id, catalog, item.name, item.nameKey, item.type).run();
+      'INSERT INTO catalog_items (id, catalog, name, name_key, type, blocked_geography_ids, blocked_theme_ids) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).bind(id, catalog, item.name, item.nameKey, item.type, JSON.stringify(blocks.blockedGeographyIds), JSON.stringify(blocks.blockedThemeIds)).run();
   } catch (error) {
     if (String(error).includes('UNIQUE')) throw new ApiError('Такая запись уже существует.', 409);
     throw error;
   }
-  return {id, name: item.name, type: item.type};
+  return {id, name: item.name, type: item.type, ...blocks};
 }
 
 async function updateCatalogItem(env, catalog, id, payload) {
   const item = normalizeCatalogItem(catalog, payload);
+  if (id === 1) throw new ApiError('Служебное значение нельзя изменить.');
+  const blocks = await validateBlocks(env, catalog, payload, id);
   try {
     await env.DB.prepare(
-      'INSERT INTO catalog_items (id, catalog, name, name_key, type) VALUES (?, ?, ?, ?, ?) ' +
-      'ON CONFLICT(id) DO UPDATE SET name = excluded.name, name_key = excluded.name_key, type = excluded.type, catalog = excluded.catalog'
-    ).bind(id, catalog, item.name, item.nameKey, item.type).run();
+      'INSERT INTO catalog_items (id, catalog, name, name_key, type, blocked_geography_ids, blocked_theme_ids) VALUES (?, ?, ?, ?, ?, ?, ?) ' +
+      'ON CONFLICT(id) DO UPDATE SET name = excluded.name, name_key = excluded.name_key, type = excluded.type, catalog = excluded.catalog, blocked_geography_ids = excluded.blocked_geography_ids, blocked_theme_ids = excluded.blocked_theme_ids'
+    ).bind(id, catalog, item.name, item.nameKey, item.type, JSON.stringify(blocks.blockedGeographyIds), JSON.stringify(blocks.blockedThemeIds)).run();
   } catch (error) {
     if (String(error).includes('UNIQUE')) throw new ApiError('Такая запись уже существует.', 409);
     throw error;
   }
-  return {id, name: item.name, type: item.type};
+  return {id, name: item.name, type: item.type, ...blocks};
 }
 
 function similarCollections(collections, config, excludeId = null) {
@@ -332,6 +378,7 @@ function similarCollections(collections, config, excludeId = null) {
 
 async function lookupCollection(env, payload) {
   const config = normalizeConfig(payload);
+  await validateCombination(env, config);
   const collections = await allCollections(env);
   const exact = collections.find(item => (
     JSON.stringify([
@@ -351,6 +398,7 @@ async function lookupCollection(env, payload) {
 
 async function saveCollection(env, payload) {
   const config = normalizeConfig(payload);
+  await validateCombination(env, config);
   const links = normalizeLinks(payload.links, config.hotelCount);
   const existing = await env.DB.prepare('SELECT id FROM collections WHERE key = ?').bind(config.key).first();
   if (existing) throw new ApiError('Такая подборка уже существует.', 409);
