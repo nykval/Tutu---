@@ -143,16 +143,14 @@
             <div class="admin-blocks" id="admin-blocks" hidden>
               <h3>Блокировки</h3>
               <div class="admin-block-field">
-                <label class="field-label" for="block-geo-search">Несовместимые географии</label>
-                <div id="block-geo-selected" class="block-selected"></div>
-                <input class="input-control" id="block-geo-search" type="search" autocomplete="off" placeholder="Найти географию">
-                <div id="block-geo-options" class="block-options"></div>
+                <span class="field-label">Несовместимые географии</span>
+                <button class="picker-trigger" id="block-geo-trigger" type="button" aria-haspopup="dialog" aria-controls="block-modal" aria-expanded="false"><span class="picker-label">Выберите географию</span><span class="picker-chevron" data-icon="ChevronDown" aria-hidden="true"></span></button>
+                <div id="block-geo-selected" class="selection-chip-list block-selected"></div>
               </div>
               <div class="admin-block-field">
-                <label class="field-label" for="block-theme-search">Несовместимые темы</label>
-                <div id="block-theme-selected" class="block-selected"></div>
-                <input class="input-control" id="block-theme-search" type="search" autocomplete="off" placeholder="Найти тему">
-                <div id="block-theme-options" class="block-options"></div>
+                <span class="field-label">Несовместимые темы</span>
+                <button class="picker-trigger" id="block-theme-trigger" type="button" aria-haspopup="dialog" aria-controls="block-modal" aria-expanded="false"><span class="picker-label">Выберите тему</span><span class="picker-chevron" data-icon="ChevronDown" aria-hidden="true"></span></button>
+                <div id="block-theme-selected" class="selection-chip-list block-selected"></div>
               </div>
             </div>
             <div class="admin-actions">
@@ -210,6 +208,25 @@
       <footer class="dialog-footer">
         <div class="dialog-footer-summary"><span id="theme-found"></span><span id="theme-selection-count">Выбрано: 0 из 3</span></div>
         <button class="primary-button dialog-apply" id="theme-apply" type="button">Готово</button>
+      </footer>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="block-modal" hidden>
+    <section class="selection-dialog" role="dialog" aria-modal="true" aria-labelledby="block-dialog-title">
+      <header class="dialog-header">
+        <div><span class="eyebrow" id="block-dialog-eyebrow">Справочник тем</span><h2 id="block-dialog-title">Выберите темы</h2></div>
+        <button class="dialog-close" id="block-close" type="button" aria-label="Закрыть"><img src="./close.svg" alt=""></button>
+      </header>
+      <div class="dialog-search search-control">
+        <span data-icon="Search" aria-hidden="true"></span>
+        <input id="block-modal-search" type="search" autocomplete="off" placeholder="Поиск" aria-label="Поиск блокировок">
+        <button class="search-clear" id="block-search-clear" type="button" aria-label="Очистить поиск" hidden><img src="./close.svg" alt=""></button>
+      </div>
+      <div class="geography-groups" id="block-groups"></div>
+      <footer class="dialog-footer">
+        <div class="dialog-footer-summary"><span id="block-found"></span><span id="block-selection-count"></span></div>
+        <button class="primary-button dialog-apply" id="block-apply" type="button">Готово</button>
       </footer>
     </section>
   </div>

@@ -617,14 +617,18 @@ select.input-control {
 .admin-blocks h3 { font-size:15px; margin-bottom:16px; }
 .admin-block-field { margin-bottom:18px; }
 .admin-block-field .field-label { margin:0 0 8px; }
-.block-selected { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+.block-selected { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
 .block-selected:empty { display:none; }
 .block-selected .selection-chip { max-width:100%; }
-.block-options { max-height:156px; overflow:auto; margin-top:5px; border:1px solid #e9ebf5; border-radius:6px; }
-.block-option { display:flex; align-items:center; gap:8px; width:100%; padding:8px 10px; border:0; background:#fff; color:#30354a; text-align:left; font-size:13px; }
-.block-option:hover { background:#f5f2ff; }
-.block-option svg { width:14px; height:14px; color:#6b4de2; }
-.block-empty { display:block; padding:10px; color:#777f96; font-size:12px; }
-.block-incoming { padding:10px; border-top:1px solid #e9ebf5; color:#747b90; font-size:12px; line-height:1.4; }
-.geography-option:disabled { opacity:.7; cursor:not-allowed; }
-.geography-option .option-reason { display:block; grid-column:2/-1; width:100%; color:#a03c44; font-size:11px; line-height:1.3; }
+.block-incoming { margin-top:10px; color:#747b90; font-size:12px; line-height:1.4; }
+.geography-option.blocked-option,
+.geography-option.blocked-option:disabled,
+.geography-option.blocked-option:hover {
+  border-color:#f0b7bd;
+  background:#fff0f1;
+  color:#a92736;
+  opacity:1;
+}
+.blocked-option .option-icon,
+.blocked-option.selected .option-icon { background:#ffdade; color:#b52635; }
+.geography-option.blocked-option:disabled { cursor:not-allowed; }

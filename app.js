@@ -5,6 +5,7 @@ const state = {
   geographyId: null, themeIds: [null], hotelCount: 10, benefitType: null, discountPercent: null,
   themeDraft: [], lookup: null, config: null, editingLinks: false, viewedCollection: null,
   blockDraft: {blockedGeographyIds: [], blockedThemeIds: []},
+  blockModalField: null, blockModalDraft: [],
   blocksSupported: false,
   pendingDeleteCollection: null, pendingDeleteButton: null, deletingCollection: false,
 };
@@ -455,21 +456,21 @@ function renderGeographyGroups() {
     const grid = appendText(group, 'div', 'geography-grid', '');
     for (const item of items) {
       const conflict = conflictFor(state.geographies, state.themes, item.id, state.themeIds.filter(Boolean));
-      const option = makeButton('', `geography-option${item.id === state.geographyId ? ' selected' : ''}`, () => {
+      const option = makeButton('', `geography-option${item.id === state.geographyId ? ' selected' : ''}${conflict ? ' blocked-option' : ''}`, () => {
         state.geographyId = item.id;
         invalidateResult();
         renderGeographies();
         closeGeographyModal();
       });
       const marker = appendText(option, 'span', 'option-icon', '');
-      marker.append(icon(type === 'страна' ? 'MapPin' : 'MapPin', 17));
+      marker.append(icon(conflict ? 'Lock' : 'MapPin', 17));
       appendText(option, 'span', 'geography-option-name', item.name);
-      if (conflict && item.id !== state.geographyId) {
-        option.disabled = true;
+      if (conflict) {
+        option.disabled = item.id !== state.geographyId;
         option.title = conflict;
-        appendText(option, 'span', 'option-reason', conflict);
+        option.setAttribute('aria-label', `${item.name}: ${conflict}`);
       }
-      if (item.id === state.geographyId) option.append(icon('Check', 17));
+      if (item.id === state.geographyId && !conflict) option.append(icon('Check', 17));
       grid.append(option);
     }
   }
@@ -558,22 +559,22 @@ function renderThemeGroups() {
       const limitReached = state.themeDraft.length >= 3 && !isSelected && item.id !== noThemeId;
       const otherThemes = state.themeDraft.filter(id => id !== item.id && id !== noThemeId);
       const conflict = item.id === noThemeId ? null : conflictFor(state.geographies, state.themes, state.geographyId, [...otherThemes, item.id]);
-      const option = makeButton('', `geography-option theme-option${isSelected ? ' selected' : ''}`, () => {
+      const option = makeButton('', `geography-option theme-option${isSelected ? ' selected' : ''}${conflict ? ' blocked-option' : ''}`, () => {
         if (isSelected) state.themeDraft = state.themeDraft.filter(id => id !== item.id);
         else if (item.id === noThemeId) state.themeDraft = [item.id];
         else if (state.themeDraft.length < 3) state.themeDraft = [...state.themeDraft.filter(id => id !== noThemeId), item.id];
         renderThemeGroups();
       });
       option.disabled = !isSelected && (limitReached || Boolean(conflict));
-      if (conflict && !isSelected) {
+      if (conflict) {
         option.title = conflict;
-        appendText(option, 'span', 'option-reason', conflict);
+        option.setAttribute('aria-label', `${item.name}: ${conflict}`);
       }
       option.setAttribute('aria-pressed', String(isSelected));
       const marker = appendText(option, 'span', 'option-icon', '');
-      marker.append(icon('Tags', 16));
+      marker.append(icon(conflict ? 'Lock' : 'Tags', 16));
       appendText(option, 'span', 'geography-option-name', item.name);
-      if (isSelected) option.append(icon('Check', 17));
+      if (isSelected && !conflict) option.append(icon('Check', 17));
       grid.append(option);
     }
   }
@@ -1137,25 +1138,22 @@ function resetAdminForm() {
   $('#admin-cancel').hidden = true;
   $('#admin-message').textContent = '';
   $('#admin-message').className = 'form-message';
-  $('#block-geo-search').value = '';
-  $('#block-theme-search').value = '';
+  $('#admin-list').querySelectorAll('.admin-card.active').forEach(card => card.classList.remove('active'));
   renderAdminBlocks();
 }
 
 function renderAdminBlocks() {
   $('#admin-blocks').hidden = state.editId === null || !state.blocksSupported;
   if (state.editId === null || !state.blocksSupported) return;
-  $('#block-geo-search').closest('.admin-block-field').hidden = state.catalog === 'geographies';
+  $('#block-geo-trigger').closest('.admin-block-field').hidden = state.catalog === 'geographies';
   for (const [catalog, field, prefix] of [
     [state.geographies, 'blockedGeographyIds', 'geo'],
     [state.themes, 'blockedThemeIds', 'theme'],
   ]) {
     const selected = $(`#block-${prefix}-selected`);
-    const options = $(`#block-${prefix}-options`);
-    const fieldNode = options.parentElement;
-    const query = $(`#block-${prefix}-search`).value.trim().toLocaleLowerCase('ru');
+    const trigger = $(`#block-${prefix}-trigger`);
+    const fieldNode = trigger.parentElement;
     selected.replaceChildren();
-    options.replaceChildren();
     fieldNode.querySelector('.block-incoming')?.remove();
     for (const id of state.blockDraft[field]) {
       const item = catalog.find(entry => entry.id === id);
@@ -1164,21 +1162,84 @@ function renderAdminBlocks() {
         renderAdminBlocks();
       });
     }
-    const candidates = catalog.filter(item => item.id !== 1 && !(field === (state.catalog === 'geographies' ? 'blockedGeographyIds' : 'blockedThemeIds') && item.id === state.editId) && !state.blockDraft[field].includes(item.id) && (!query || item.name.toLocaleLowerCase('ru').includes(query))).slice(0, 8);
-    for (const item of candidates) {
-      const choice = makeButton(item.name, 'block-option', () => {
-        state.blockDraft[field].push(item.id);
-        $(`#block-${prefix}-search`).value = '';
-        renderAdminBlocks();
-      }, 'Plus');
-      options.append(choice);
-    }
-    if (!candidates.length) appendText(options, 'span', 'block-empty', 'Ничего не найдено');
     const incoming = catalog.filter(item => item.id !== state.editId && blockedIds(item, state.catalog === 'geographies' ? 'blockedGeographyIds' : 'blockedThemeIds').includes(state.editId));
     if (incoming.length) {
       appendText(fieldNode, 'div', 'block-incoming', `Также заблокировано в карточке: ${incoming.map(item => item.name).join(', ')}. Для снятия откройте ту карточку.`);
     }
   }
+}
+
+function renderBlockGroups() {
+  const field = state.blockModalField;
+  if (!field) return;
+  const isGeography = field === 'blockedGeographyIds';
+  const source = isGeography ? state.geographies : state.themes;
+  const labels = isGeography ? geographyTypeLabels : themeTypeLabels;
+  const order = isGeography ? ['населенный пункт', 'местность', 'регион', 'страна'] : themeTypes;
+  const root = $('#block-groups');
+  const previousScrollTop = root.scrollTop;
+  const query = $('#block-modal-search').value.trim().toLocaleLowerCase('ru');
+  $('#block-search-clear').hidden = !query;
+  root.replaceChildren();
+  let found = 0;
+  for (const type of order) {
+    const items = source.filter(item => item.type === type && item.id !== 1 && !(item.id === state.editId && (isGeography ? state.catalog === 'geographies' : state.catalog === 'themes')) && (!query || item.name.toLocaleLowerCase('ru').includes(query)));
+    if (!items.length) continue;
+    found += items.length;
+    const group = appendText(root, 'section', 'geography-group', '');
+    const head = appendText(group, 'div', 'geography-group-head', '');
+    appendText(head, 'h3', '', labels[type] || type);
+    appendText(head, 'span', '', String(items.length));
+    const grid = appendText(group, 'div', 'geography-grid', '');
+    for (const item of items) {
+      const isSelected = state.blockModalDraft.includes(item.id);
+      const option = makeButton('', `geography-option${isSelected ? ' selected' : ''}`, () => {
+        state.blockModalDraft = isSelected ? state.blockModalDraft.filter(id => id !== item.id) : [...state.blockModalDraft, item.id];
+        renderBlockGroups();
+      });
+      option.setAttribute('aria-pressed', String(isSelected));
+      const marker = appendText(option, 'span', 'option-icon', '');
+      marker.append(icon(isGeography ? 'MapPin' : 'Tags', 16));
+      appendText(option, 'span', 'geography-option-name', item.name);
+      if (isSelected) option.append(icon('Check', 17));
+      grid.append(option);
+    }
+  }
+  $('#block-found').textContent = found ? `Найдено: ${found}` : 'Ничего не найдено';
+  $('#block-selection-count').textContent = `Выбрано: ${state.blockModalDraft.length}`;
+  if (!found) appendText(root, 'div', 'picker-empty', 'Совпадений нет');
+  requestAnimationFrame(() => { root.scrollTop = previousScrollTop; });
+}
+
+function openBlockModal(field) {
+  if (state.editId === null || !state.blocksSupported) return;
+  const isGeography = field === 'blockedGeographyIds';
+  state.blockModalField = field;
+  state.blockModalDraft = [...state.blockDraft[field]];
+  $('#block-dialog-eyebrow').textContent = isGeography ? 'Справочник географии' : 'Справочник тем';
+  $('#block-dialog-title').textContent = isGeography ? 'Выберите географии' : 'Выберите темы';
+  $('#block-modal-search').placeholder = isGeography ? 'Город, страна, регион или местность' : 'Название темы';
+  $('#block-modal-search').value = '';
+  $('#block-groups').scrollTop = 0;
+  $('#block-modal').hidden = false;
+  $(`#block-${isGeography ? 'geo' : 'theme'}-trigger`).setAttribute('aria-expanded', 'true');
+  document.body.classList.add('modal-open');
+  renderBlockGroups();
+  requestAnimationFrame(() => $('#block-modal-search').focus());
+}
+
+function closeBlockModal(apply = false) {
+  const field = state.blockModalField;
+  if (!field) return;
+  const trigger = $(`#block-${field === 'blockedGeographyIds' ? 'geo' : 'theme'}-trigger`);
+  if (apply) state.blockDraft[field] = [...state.blockModalDraft];
+  $('#block-modal').hidden = true;
+  trigger.setAttribute('aria-expanded', 'false');
+  state.blockModalField = null;
+  state.blockModalDraft = [];
+  document.body.classList.remove('modal-open');
+  if (apply) renderAdminBlocks();
+  trigger.focus();
 }
 
 function renderAdminTypes() {
@@ -1213,8 +1274,6 @@ function setCatalog(catalog) {
 
 function editCatalogItem(item) {
   state.editId = item.id;
-  $('#block-geo-search').value = '';
-  $('#block-theme-search').value = '';
   state.blockDraft = {
     blockedGeographyIds: [...blockedIds(item, 'blockedGeographyIds')],
     blockedThemeIds: [...blockedIds(item, 'blockedThemeIds')],
@@ -1276,6 +1335,20 @@ async function init() {
   });
   $('#theme-apply').addEventListener('click', () => closeThemeModal(true));
   $('#theme-modal').addEventListener('click', event => { if (event.target === $('#theme-modal')) closeThemeModal(false); });
+  $('#block-geo-trigger').addEventListener('click', () => openBlockModal('blockedGeographyIds'));
+  $('#block-theme-trigger').addEventListener('click', () => openBlockModal('blockedThemeIds'));
+  $('#block-close').addEventListener('click', () => closeBlockModal());
+  $('#block-apply').addEventListener('click', () => closeBlockModal(true));
+  $('#block-modal-search').addEventListener('input', () => {
+    $('#block-groups').scrollTop = 0;
+    renderBlockGroups();
+  });
+  $('#block-search-clear').addEventListener('click', () => {
+    $('#block-modal-search').value = '';
+    renderBlockGroups();
+    $('#block-modal-search').focus();
+  });
+  $('#block-modal').addEventListener('click', event => { if (event.target === $('#block-modal')) closeBlockModal(); });
   $('#collection-close').addEventListener('click', closeCollectionModal);
   $('#collection-modal').addEventListener('click', event => { if (event.target === $('#collection-modal')) closeCollectionModal(); });
   $('#collection-edit').addEventListener('click', () => {
@@ -1293,6 +1366,7 @@ async function init() {
     if (event.key === 'Escape') {
       if (!$('#geography-modal').hidden) closeGeographyModal();
       else if (!$('#theme-modal').hidden) closeThemeModal(false);
+      else if (!$('#block-modal').hidden) closeBlockModal();
       else if (!$('#delete-modal').hidden) closeDeleteModal();
       else if (!$('#collection-modal').hidden) closeCollectionModal();
     }
@@ -1320,8 +1394,6 @@ async function init() {
   });
   $('#library-search').addEventListener('input', renderLibrary);
   $('#admin-search').addEventListener('input', renderAdminList);
-  $('#block-geo-search').addEventListener('input', renderAdminBlocks);
-  $('#block-theme-search').addEventListener('input', renderAdminBlocks);
   $('#admin-cancel').addEventListener('click', resetAdminForm);
   $('#admin-form').addEventListener('submit', async event => {
     event.preventDefault();
