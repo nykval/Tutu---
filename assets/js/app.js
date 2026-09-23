@@ -322,7 +322,7 @@ function makeButton(label, className, click, iconName) {
 
 function closeImage() {
   const image = document.createElement('img');
-  image.src = './close.svg';
+  image.src = './assets/images/close.svg';
   image.alt = '';
   image.className = 'close-glyph';
   return image;

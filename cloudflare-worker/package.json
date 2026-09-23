@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "check": "node --check src/index.js",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "db:create": "wrangler d1 create tutu-collections --binding DB --update-config",
-    "db:migrate": "wrangler d1 migrations apply tutu-collections --remote"
+    "db:list": "wrangler d1 migrations list tutu-collections --remote"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

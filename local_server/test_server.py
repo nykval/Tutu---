@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import server
+from local_server import server
 
 
 class CollectionTests(unittest.TestCase):
@@ -68,6 +68,22 @@ class CollectionTests(unittest.TestCase):
             for links in (["https://tutu.ru/a"], ["https://tutu.ru/a"] * 2, ["not-a-url", "https://tutu.ru/b"], ["https://[bad", "https://tutu.ru/b"]):
                 with self.assertRaises(server.ApiError):
                     server.save_collection(conn, config, links)
+
+    def test_catalog_blocks_are_enforced(self):
+        with server.database() as conn:
+            theme = next(item for item in server.catalog_rows(conn, "themes") if item["id"] == 2)
+            changed = server.update_catalog_item(conn, "themes", theme["id"], {
+                "name": theme["name"],
+                "type": theme["type"],
+                "blockedGeographyIds": [2],
+                "blockedThemeIds": [3],
+            })
+            self.assertEqual(changed["blockedGeographyIds"], [2])
+            self.assertEqual(changed["blockedThemeIds"], [3])
+            with self.assertRaisesRegex(server.ApiError, "не сочетается"):
+                server.normalize_config(conn, {"geographyId": 2, "themeIds": [2], "hotelCount": 1})
+            with self.assertRaisesRegex(server.ApiError, "не сочетаются"):
+                server.normalize_config(conn, {"geographyId": 3, "themeIds": [2, 3], "hotelCount": 1})
 
 
 if __name__ == "__main__":

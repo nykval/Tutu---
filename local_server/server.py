@@ -14,18 +14,24 @@ from urllib.parse import parse_qsl, urlsplit
 from urllib.request import Request, urlopen
 
 
-ROOT = Path(__file__).resolve().parent
-DB_PATH = ROOT / "collections.sqlite3"
-SEED_PATH = ROOT / "catalog-seed.json"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DB_PATH = PROJECT_ROOT / "data" / "collections.sqlite3"
+SEED_PATH = PROJECT_ROOT / "data" / "catalog-seed.json"
 GEOGRAPHY_TYPES = ("населенный пункт", "без географии", "страна", "регион", "местность")
 THEME_TYPES = (
     "сценарий", "состав", "занятия", "впечатления", "удобства",
     "расположение", "характер", "уровень", "повод", "без темы",
 )
 STATIC_FILES = {
-    "/": "index.html", "/app.css": "app.css", "/result.css": "result.css",
-    "/app.js": "app.js", "/icons.js": "icons.js", "/brand.png": "brand.png",
-    "/config.js": "config.js", "/catalog-data.js": "catalog-data.js", "/close.svg": "close.svg",
+    "/": "index.html",
+    "/assets/css/base.css": "assets/css/base.css",
+    "/assets/css/components.css": "assets/css/components.css",
+    "/assets/js/app.js": "assets/js/app.js",
+    "/assets/js/icons.js": "assets/js/icons.js",
+    "/assets/js/config.js": "assets/js/config.js",
+    "/assets/js/catalog-data.js": "assets/js/catalog-data.js",
+    "/assets/images/brand.png": "assets/images/brand.png",
+    "/assets/images/close.svg": "assets/images/close.svg",
 }
 BENEFIT_TYPES = ("action", "promocode")
 MCP_URL = "https://mcp.tutu.ru/mcp"
@@ -688,7 +694,7 @@ class Handler(BaseHTTPRequestHandler):
             filename = STATIC_FILES.get(path)
             if not filename:
                 raise ApiError("Страница не найдена.", 404)
-            content = (ROOT / filename).read_bytes()
+            content = (PROJECT_ROOT / filename).read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", mimetypes.guess_type(filename)[0] or "text/html")
             self.send_header("Cache-Control", "no-store")

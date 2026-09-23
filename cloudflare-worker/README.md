@@ -1,34 +1,49 @@
-# Общий сервер подборок
+# Cloudflare Worker
 
-Этот Cloudflare Worker выполняет две задачи:
+Общий API приложения. Код находится в `src/index.js`, схема Cloudflare D1 — в `migrations/`.
 
-- хранит общие подборки в базе Cloudflare D1;
-- обращается к Tutu MCP и возвращает найденные ссылки приложению.
+Production:
 
-## Первое подключение
+- Worker: `tutu-collections-api.skorokirzhaboy.workers.dev`;
+- база D1: `tutu-collections`;
+- binding базы: `DB`.
 
-1. Создайте бесплатный аккаунт Cloudflare.
-2. Откройте терминал в этой папке и выполните:
+## Что делает Worker
 
-       npm install
-       npx wrangler login
-       npm run db:create
-       npm run db:migrate
-       npm run deploy
+- хранит общие подборки и изменения справочников в D1;
+- проверяет блокировки географий и тем;
+- ищет точные и похожие подборки;
+- вызывает Tutu MCP для автоматического поиска отелей;
+- создаёт, редактирует и удаляет подборки.
 
-3. После публикации Cloudflare покажет адрес вида:
+## Документация
 
-       https://tutu-collections-api.<ваш-поддомен>.workers.dev
+- [Архитектура и API](../docs/ARCHITECTURE.md)
+- [База и миграции](../docs/DATABASE.md)
+- [Публикация и восстановление](../docs/OPERATIONS.md)
 
-4. Вставьте этот адрес в поле apiBaseUrl файла config.js в корне проекта.
+## Локальные команды
 
-После обновления сайта все сотрудники будут читать и сохранять подборки в одной базе.
+Установка Wrangler:
 
-При обновлении уже работающего сервера после добавления блокировок запустите
-`npm run db:migrate`, затем `npm run deploy`. Новая миграция добавляет правила
-несовместимости и сохраняет все существующие подборки.
+```bash
+npm install
+```
+
+Проверка синтаксиса:
+
+```bash
+npm run check
+```
+
+Локальный запуск Worker:
+
+```bash
+npm run dev
+```
 
 ## Важно
 
-Сервер разрешает браузерные запросы с https://nykval.github.io. Дополнительные
-адреса можно перечислить через запятую в ALLOWED_ORIGINS файла wrangler.jsonc.
+В `wrangler.jsonc` намеренно нет `database_id`: production binding был создан через Cloudflare Dashboard. Не выполняйте CLI-деплой, пока не добавите привязку именно существующей базы `tutu-collections` в локальную конфигурацию.
+
+Миграция `0002_catalog_blocks.sql` уже выполнена вручную через D1 Console, но может не быть отмечена в таблице `d1_migrations`. Не запускайте `migrations apply` без проверки схемы — повторное добавление колонок завершится ошибкой.

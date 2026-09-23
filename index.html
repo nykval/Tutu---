@@ -5,19 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Подборки отелей | Туту</title>
-  <link rel="icon" type="image/png" href="./brand.png">
-  <link rel="stylesheet" href="./app.css">
-  <link rel="stylesheet" href="./result.css?v=4">
-  <script src="./config.js" defer></script>
-  <script src="./catalog-data.js" defer></script>
-  <script src="./icons.js?v=2" defer></script>
-  <script src="./app.js?v=6" defer></script>
+  <link rel="icon" type="image/png" href="./assets/images/brand.png">
+  <link rel="stylesheet" href="./assets/css/base.css">
+  <link rel="stylesheet" href="./assets/css/components.css?v=5">
+  <script src="./assets/js/config.js" defer></script>
+  <script src="./assets/js/catalog-data.js" defer></script>
+  <script src="./assets/js/icons.js?v=3" defer></script>
+  <script src="./assets/js/app.js?v=7" defer></script>
 </head>
 <body>
   <header class="site-header">
     <div class="header-inner">
       <div class="identity">
-        <img class="brand-image" src="./brand.png" alt="Туту" width="109" height="38">
+        <img class="brand-image" src="./assets/images/brand.png" alt="Туту" width="109" height="38">
         <span class="product-name">Подборки отелей</span>
       </div>
       <nav class="main-nav" aria-label="Разделы">
@@ -178,12 +178,12 @@
           <span class="eyebrow">Справочник географии</span>
           <h2 id="geography-dialog-title">Выберите географию</h2>
         </div>
-        <button class="dialog-close" id="geography-close" type="button" aria-label="Закрыть"><img src="./close.svg" alt=""></button>
+        <button class="dialog-close" id="geography-close" type="button" aria-label="Закрыть"><img src="./assets/images/close.svg" alt=""></button>
       </header>
       <div class="dialog-search search-control">
         <span data-icon="Search" aria-hidden="true"></span>
         <input id="geography-modal-search" type="search" autocomplete="off" placeholder="Город, страна, регион или местность" aria-label="Поиск в справочнике географии">
-        <button class="search-clear" id="geography-search-clear" type="button" aria-label="Очистить поиск" hidden><img src="./close.svg" alt=""></button>
+        <button class="search-clear" id="geography-search-clear" type="button" aria-label="Очистить поиск" hidden><img src="./assets/images/close.svg" alt=""></button>
       </div>
       <div class="geography-groups" id="geography-groups"></div>
       <footer class="dialog-footer"><span id="geography-found"></span><span>Можно выбрать один вариант</span></footer>
@@ -197,12 +197,12 @@
           <span class="eyebrow">Справочник тем</span>
           <h2 id="theme-dialog-title">Выберите темы</h2>
         </div>
-        <button class="dialog-close" id="theme-close" type="button" aria-label="Закрыть"><img src="./close.svg" alt=""></button>
+        <button class="dialog-close" id="theme-close" type="button" aria-label="Закрыть"><img src="./assets/images/close.svg" alt=""></button>
       </header>
       <div class="dialog-search search-control">
         <span data-icon="Search" aria-hidden="true"></span>
         <input id="theme-modal-search" type="search" autocomplete="off" placeholder="Название темы" aria-label="Поиск в справочнике тем">
-        <button class="search-clear" id="theme-search-clear" type="button" aria-label="Очистить поиск" hidden><img src="./close.svg" alt=""></button>
+        <button class="search-clear" id="theme-search-clear" type="button" aria-label="Очистить поиск" hidden><img src="./assets/images/close.svg" alt=""></button>
       </div>
       <div class="geography-groups theme-groups" id="theme-groups"></div>
       <footer class="dialog-footer">
@@ -216,12 +216,12 @@
     <section class="selection-dialog" role="dialog" aria-modal="true" aria-labelledby="block-dialog-title">
       <header class="dialog-header">
         <div><span class="eyebrow" id="block-dialog-eyebrow">Справочник тем</span><h2 id="block-dialog-title">Выберите темы</h2></div>
-        <button class="dialog-close" id="block-close" type="button" aria-label="Закрыть"><img src="./close.svg" alt=""></button>
+        <button class="dialog-close" id="block-close" type="button" aria-label="Закрыть"><img src="./assets/images/close.svg" alt=""></button>
       </header>
       <div class="dialog-search search-control">
         <span data-icon="Search" aria-hidden="true"></span>
         <input id="block-modal-search" type="search" autocomplete="off" placeholder="Поиск" aria-label="Поиск блокировок">
-        <button class="search-clear" id="block-search-clear" type="button" aria-label="Очистить поиск" hidden><img src="./close.svg" alt=""></button>
+        <button class="search-clear" id="block-search-clear" type="button" aria-label="Очистить поиск" hidden><img src="./assets/images/close.svg" alt=""></button>
       </div>
       <div class="geography-groups" id="block-groups"></div>
       <footer class="dialog-footer">
@@ -238,7 +238,7 @@
           <span class="eyebrow">Подборка</span>
           <h2 id="collection-dialog-title">Информация о подборке</h2>
         </div>
-        <button class="dialog-close" id="collection-close" type="button" aria-label="Закрыть"><img src="./close.svg" alt=""></button>
+        <button class="dialog-close" id="collection-close" type="button" aria-label="Закрыть"><img src="./assets/images/close.svg" alt=""></button>
       </header>
       <div class="collection-modal-body" id="collection-modal-body"></div>
       <footer class="dialog-footer">
@@ -256,7 +256,7 @@
           <span class="eyebrow">Подтверждение</span>
           <h2 id="delete-dialog-title">Удалить подборку?</h2>
         </div>
-        <button class="dialog-close" id="delete-close" type="button" aria-label="Закрыть"><img src="./close.svg" alt=""></button>
+        <button class="dialog-close" id="delete-close" type="button" aria-label="Закрыть"><img src="./assets/images/close.svg" alt=""></button>
       </header>
       <div class="delete-dialog-body">
         <strong class="delete-collection-name" id="delete-collection-name"></strong>
